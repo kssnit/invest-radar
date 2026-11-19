@@ -159,6 +159,7 @@ https://www.data.go.kr 로그인 → **조달청_나라장터 낙찰정보서비
   ```json
   {"name": "한화시스템 실적발표", "start": "2027-02-05", "end": "2027-02-05", "place": "", "note": "자금 조달 언급 확인"},
   ```
+  결과가 나온 일정은 `"status": "done"` 을 붙이면 대시보드에 '결과' 표시로 `end` 날짜까지 보여요. 일정이 4개보다 많으면 '더 보기'로 펼쳐져요.
 - **공시 분류**: `danger_keywords`(🚨), `good_keywords`(📈)
 - **나라장터**: `company_keywords`(개찰 결과에 이 회사가 나오면 알림), `title_keywords`(사업명에 이 단어가 있으면 알림)
 - **확인 주기**: `schedule`

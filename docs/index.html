@@ -138,6 +138,10 @@
     background: var(--panel-2); color: var(--ink-2); }
   .dd.soon { background: rgba(242, 169, 59, .14); color: var(--warn); }
   .dd.now { background: rgba(58, 208, 127, .14); color: var(--live); }
+  .dd.done { background: rgba(110, 168, 255, .16); color: var(--accent-2); }
+  .evmore { width: 100%; margin-top: 10px; padding: 9px 0; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-2);
+    color: var(--accent-2); font-size: 13px; font-weight: 600; }
+  .evmore:hover { border-color: var(--line-2); color: var(--ink); }
   .ev-name { font-weight: 600; font-size: 14px; }
   .ev-meta { color: var(--ink-3); font-size: 12.5px; }
   .ev-note { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -305,7 +309,8 @@
     </section>
     <aside class="side">
       <section class="panel"><h2>오늘의 요약</h2><ul class="sum" id="summary"></ul></section>
-      <section class="panel" id="evPanel"><h2>다가오는 일정</h2><ul class="evs" id="events"></ul></section>
+      <section class="panel" id="evPanel"><h2>다가오는 일정</h2><ul class="evs" id="events"></ul>
+        <button type="button" class="evmore" id="evMore" hidden></button></section>
     </aside>
   </div>
 
@@ -815,14 +820,20 @@
     var evs = ((DATA && DATA.events) || []).map(function (e) {
       var end = e.end || e.start;
       return Object.assign({}, e, { _end: end, _d: daysBetween(today, e.start), _endD: daysBetween(today, end) });
-    }).filter(function (e) { return e._endD >= 0; }).sort(function (a, b) { return a._d - b._d; }).slice(0, 5);
+    }).filter(function (e) { return e._endD >= 0; }).sort(function (a, b) { return a._d - b._d; });
     $("evPanel").hidden = !evs.length;
-    $("events").innerHTML = evs.map(function (e) {
-      var badge = e._d > 0 ? "D-" + e._d : e._d === 0 ? "오늘" : "진행 중";
-      var cls = e._d <= 0 ? "now" : e._d <= 3 ? "soon" : "";
+    var SHOW = 4, extra = Math.max(0, evs.length - SHOW);
+    var list = ui.evAll ? evs : evs.slice(0, SHOW);
+    $("evMore").hidden = !extra;
+    $("evMore").textContent = ui.evAll ? "접기" : "일정 " + extra + "개 더 보기";
+    $("events").innerHTML = list.map(function (e) {
+      var done = e.status === "done";
+      var badge = done ? "결과" : e._d > 0 ? "D-" + e._d : e._d === 0 ? "오늘" : "진행 중";
+      var cls = done ? "done" : e._d <= 0 ? "now" : e._d <= 3 ? "soon" : "";
       var period = e.start === e._end ? e.start : e.start + " ~ " + e._end.slice(5);
       var link = safeUrl(e.url);
       var name = link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(e.name) + "</a>" : esc(e.name);
+      if (done) period = e.start;
       return '<li><span class="dd ' + cls + '">' + badge + '</span><div><div class="ev-name">' + name + '</div><div class="ev-meta num">' + esc(period) +
         (e.place ? " · " + esc(e.place) : "") + "</div>" + (e.note ? '<div class="ev-note">' + esc(e.note) + "</div>" : "") + "</div></li>";
     }).join("");
@@ -1029,6 +1040,7 @@
     var news = t.closest(".c-news[data-corp]");
     if (news) { ui.corp = news.getAttribute("data-corp"); ui.kind = "all"; ui.limit = PAGE; renderFeedSegs(); renderFeed(); $("feedBlock").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
     var b = t.closest("button");
+    if (b && b.id === "evMore") { ui.evAll = !ui.evAll; renderEvents(); return; }
     if (b && b.hasAttribute("data-range")) { ui.range = b.getAttribute("data-range"); remember(); renderChart(); return; }
     if (b && b.hasAttribute("data-hold")) { ui.hold = b.getAttribute("data-hold"); remember(); renderHoldSeg(); renderCards(); return; }
     if (b && b.hasAttribute("data-sort")) { ui.sort = b.getAttribute("data-sort"); remember(); renderHoldSeg(); renderCards(); return; }
