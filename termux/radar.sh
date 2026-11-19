@@ -47,20 +47,33 @@ case "${1:-status}" in
     bash "$DIR/termux/install.sh"
     ;;
   update)
-    REPO="$(grep -E '^GITHUB_REPO=' "$DIR/.env" 2>/dev/null | cut -d= -f2-)"
+    REPO="$(grep -E '^GITHUB_REPO=' "$DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r" ')"
     if [ -z "$REPO" ]; then echo ".env 에 GITHUB_REPO 가 없어요. (radar setup)"; exit 1; fi
-    TMP="$(mktemp -d)"
     echo "GitHub($REPO)에서 최신 코드 받는 중..."
-    if ! curl -fsSL "https://github.com/$REPO/archive/HEAD.zip" -o "$TMP/r.zip"; then
-      echo "❌ 다운로드 실패"; rm -rf "$TMP"; exit 1
+    # curl 대신 파이썬으로 받아요 (Termux curl 라이브러리 문제를 피하려고)
+    if ! python - "$REPO" "$DIR" <<'PY'
+import io, os, sys, urllib.request, zipfile
+repo, d = sys.argv[1], sys.argv[2]
+try:
+    req = urllib.request.Request(f"https://github.com/{repo}/archive/HEAD.zip", headers={"User-Agent": "invest-radar-update"})
+    z = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(req, timeout=60).read()))
+except Exception as e:
+    print(f"오류: {e}")
+    sys.exit(1)
+top = z.namelist()[0].split("/")[0] + "/"
+names = set(z.namelist())
+for f in ("monitor.py", "config.json", "termux/radar.sh", "termux/install.sh"):
+    if top + f in names:
+        dst = os.path.join(d, f)
+        with open(dst + ".new", "wb") as out:
+            out.write(z.read(top + f))
+        os.replace(dst + ".new", dst)  # 실행 중인 radar.sh 를 덮어써도 안전하게
+        print("  ✅", f)
+PY
+    then
+      echo "❌ 다운로드 실패 (휴대폰 인터넷 연결을 확인하세요)"; exit 1
     fi
-    unzip -q "$TMP/r.zip" -d "$TMP/src"
-    SRC="$(find "$TMP/src" -mindepth 1 -maxdepth 1 -type d | head -1)"
-    cp "$SRC/monitor.py" "$DIR/monitor.py"
-    cp "$SRC/config.json" "$DIR/config.json"
-    cp "$SRC/termux/"*.sh "$DIR/termux/" 2>/dev/null
     chmod +x "$DIR/termux/"*.sh
-    rm -rf "$TMP"
     echo "✅ 최신 코드로 바꿨어요. 다시 시작할게요."
     "$0" restart
     ;;
