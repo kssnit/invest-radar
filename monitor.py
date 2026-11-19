@@ -36,7 +36,7 @@ try:
 except ImportError:  # 윈도우
     fcntl = None
 
-VERSION = "2.0-phone"
+VERSION = "2.1-phone"
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.json")
@@ -75,7 +75,18 @@ DEFAULT_SCHEDULE = {
     "dart_fast_seconds": 60, "dart_slow_seconds": 600,
     "g2b_fast_seconds": 600, "g2b_slow_seconds": 1800,
     "upload_min_seconds": 60, "alive_minutes": 20, "config_sync_minutes": 10,
+    "dart_unheld_every": 3,
 }
+ALERT_LEVELS = {"all": {"danger", "good", "info"}, "keywords": {"danger", "good"}, "none": set()}
+
+
+def is_held(c):
+    """config 의 종목이 보유 종목인지. held 가 없으면 보유로 봅니다 (예전 설정 호환)."""
+    return bool(c.get("held", True))
+
+
+def held_word(held):
+    return "보유" if held else "미보유"
 
 _log_to_file = False
 
@@ -147,6 +158,11 @@ def validate_config(cfg):
     for c in comps:
         if not isinstance(c, dict) or not str(c.get("stock_code", "")).isdigit():
             return f"종목 항목 오류: {c}"
+        if "held" in c and not isinstance(c["held"], bool):
+            return f"held 는 true 또는 false 로 적어야 해요: {c}"
+    for k in ("alert_held", "alert_unheld"):
+        if k in cfg.get("dart", {}) and cfg["dart"][k] not in ALERT_LEVELS:
+            return f"dart.{k} 는 all / keywords / none 중 하나여야 해요: {cfg['dart'][k]}"
     for ev in cfg.get("events", []):
         try:
             date.fromisoformat(ev["start"])
@@ -317,9 +333,11 @@ class RateLimited(RuntimeError):
     pass
 
 
-def fetch_dart(cfg, state, key):
+def fetch_dart(cfg, state, key, include_unheld=True):
     dcfg = cfg.get("dart", {})
     companies, problems, cache_changed = resolve_corp_codes(dcfg, state, key)
+    if not include_unheld:
+        companies = [c for c in companies if is_held(c)]
     end = now().date()
     bgn = end - timedelta(days=int(dcfg.get("lookback_days", 3)))
     items = []
@@ -347,9 +365,10 @@ def fetch_dart(cfg, state, key):
                 "filer": it.get("flr_nm", ""),
                 "url": DART_VIEW_URL + it["rcept_no"],
                 "level": classify_report(name, dcfg),
+                "held": is_held(c),
             })
         time.sleep(0.12)
-    return items, problems, cache_changed
+    return items, problems, cache_changed, [c["stock_code"] for c in companies]
 
 
 # ---------------------------------------------------------------- 나라장터
@@ -485,13 +504,36 @@ def _trim(s, n):
 
 
 def embed_dart(it):
+    held = it.get("held", True)
     return {
-        "title": _trim(f"{EMOJI[it['level']]} [{it['corp']}] {it['title']}", 256),
+        "title": _trim(f"{EMOJI[it['level']]} [{it['corp']} · {held_word(held)}] {it['title']}", 256),
         "url": it["url"], "color": COLOR[it["level"]],
         "fields": [{"name": "제출인", "value": _trim(it.get("filer") or "-", 100), "inline": True},
                    {"name": "접수일", "value": it.get("date") or "-", "inline": True}],
-        "footer": {"text": "DART 전자공시"},
+        "footer": {"text": "DART 전자공시 · " + ("보유 종목" if held else "미보유 관심 종목")},
     }
+
+
+def count_held(cfg):
+    comps = cfg.get("dart", {}).get("companies", [])
+    h = sum(1 for c in comps if is_held(c))
+    return h, len(comps) - h
+
+
+def config_diff(old, new):
+    """종목 추가·삭제·보유 변경을 사람이 읽을 문장으로."""
+    o = {c["stock_code"]: c for c in old.get("dart", {}).get("companies", [])}
+    n = {c["stock_code"]: c for c in new.get("dart", {}).get("companies", [])}
+    lines = []
+    for code, c in n.items():
+        if code not in o:
+            lines.append(f"➕ 추가: {c.get('name')} ({held_word(is_held(c))})")
+        elif is_held(o[code]) != is_held(c):
+            lines.append(f"🔁 {c.get('name')}: {held_word(is_held(o[code]))} → {held_word(is_held(c))}")
+    for code, c in o.items():
+        if code not in n:
+            lines.append(f"➖ 삭제: {c.get('name')}")
+    return lines
 
 
 def embed_g2b(it):
@@ -605,8 +647,12 @@ def schedule_text(s):
     days = "평일 " if s.get("fast_weekdays_only", True) else ""
     def m(sec):
         return f"{sec // 60}분" if sec >= 60 else f"{sec}초"
-    return (f"{days}{a:02d}~{b:02d}시: 공시 {m(s['dart_fast_seconds'])}·입찰 {m(s['g2b_fast_seconds'])}마다 / "
+    text = (f"{days}{a:02d}~{b:02d}시: 공시 {m(s['dart_fast_seconds'])}·입찰 {m(s['g2b_fast_seconds'])}마다 / "
             f"그 외: 공시 {m(s['dart_slow_seconds'])}·입찰 {m(s['g2b_slow_seconds'])}마다")
+    k = int(s.get("dart_unheld_every", 1))
+    if k > 1:
+        text += f" (미보유 종목 공시는 {k}배 간격)"
+    return text
 
 
 # ---------------------------------------------------------------- 본체
@@ -631,6 +677,7 @@ class Radar:
         self.last_data_upload = 0.0
         self.last_alive_upload = 0.0
         self.upload_backoff_until = 0.0
+        self.dart_round = 0
         self.uploaded_data_text = None
         self.saved_state_text = None
         self.saved_data_text = None
@@ -654,7 +701,8 @@ class Radar:
         a, b = s["fast_hours"]
         fast_h = max(0, b - a)
         runs = fast_h * 3600 / s["dart_fast_seconds"] + (24 - fast_h) * 3600 / s["dart_slow_seconds"]
-        return int(runs * len(self.cfg.get("dart", {}).get("companies", [])))
+        held, unheld = count_held(self.cfg)
+        return int(runs * held + runs * unheld / max(1, int(s.get("dart_unheld_every", 1))))
 
     def sync_config(self, alerts):
         try:
@@ -676,13 +724,15 @@ class Radar:
         if err:
             alerts.append(system_embed("⚠️ GitHub의 config.json 내용 오류", f"이전 설정을 계속 써요.\n{err}"))
             return
-        old_n = len(self.cfg.get("dart", {}).get("companies", []))
+        changes = config_diff(self.cfg, remote)
         self.cfg = remote
+        self.dart_round = 0  # 다음 확인에 미보유 종목까지 바로 포함
         save_text(CONFIG_PATH, text if text.endswith("\n") else text + "\n")
-        n = len(remote.get("dart", {}).get("companies", []))
-        log(f"설정 변경 반영 (종목 {old_n} → {n}개)")
+        held, unheld = count_held(remote)
+        log(f"설정 변경 반영: 보유 {held} · 미보유 {unheld} · " + " / ".join(changes))
         alerts.append(system_embed("⚙️ 설정 변경을 반영했어요",
-                                   f"관심 종목 {n}개 · 일정 {len(remote.get('events', []))}개"))
+                                   "\n".join(changes + [""] if changes else []) +
+                                   f"보유 {held}개 · 미보유 {unheld}개 · 일정 {len(remote.get('events', []))}개"))
         self.next["dart"] = 0.0  # 바로 다시 확인
 
     # --- 한 번 확인
@@ -709,17 +759,30 @@ class Radar:
                 status_changed |= update_status(state, "dart", None, "DART_API_KEY 미설정", alerts)
             else:
                 try:
-                    items, problems, cache_changed = fetch_dart(cfg, state, self.dart_key)
+                    every = max(1, int(self.sched.get("dart_unheld_every", 1)))
+                    include_unheld = self.dart_round % every == 0
+                    self.dart_round += 1
+                    if "primed_corps" not in state:  # 예전 버전에서 넘어온 경우: 이미 확인하던 종목은 그대로
+                        state["primed_corps"] = sorted(k for k, v in state.get("corp_codes", {}).items() if v)
+                    items, problems, cache_changed, queried = fetch_dart(
+                        cfg, state, self.dart_key, include_unheld=include_unheld)
                     status_changed |= cache_changed
+                    primed_corps = set(state["primed_corps"])
                     seen = set(state.get("seen_dart", []))
                     for it in sorted(items, key=lambda x: x["id"]):
                         if it["id"] not in seen:
                             it["first_seen"] = t.isoformat(timespec="seconds")
+                            if it["stock_code"] not in primed_corps:
+                                it["quiet"] = True  # 새로 추가한 종목의 지난 공시: 대시보드에만
                             new_dart.append(it)
                             seen.add(it["id"])
+                    newly_added = sorted(set(queried) - primed_corps)
+                    if newly_added:
+                        state["primed_corps"] = sorted(primed_corps | set(queried))
+                        status_changed = True
                     state["seen_dart"] = sorted(seen)[-4000:]
-                    n_ok = len(cfg.get("dart", {}).get("companies", [])) - len(problems)
-                    msg = f"정상 · 종목 {n_ok}개"
+                    n_held, n_unheld = count_held(cfg)
+                    msg = f"정상 · 보유 {n_held}개 · 미보유 {n_unheld}개"
                     if problems:
                         msg += " · 못 찾은 종목코드: " + ", ".join(problems)
                     status_changed |= update_status(state, "dart", True, msg, alerts)
@@ -766,7 +829,14 @@ class Radar:
         for s in newly:
             primed[s] = True
         alerts = [a for a in alerts if not any(a["title"] == f"✅ {LABEL[s]} 다시 정상" for s in newly)]
-        alert_dart = [] if "dart" in newly else new_dart
+        dcfg = cfg.get("dart", {})
+        lv_held = ALERT_LEVELS.get(dcfg.get("alert_held", "all"), ALERT_LEVELS["all"])
+        lv_unheld = ALERT_LEVELS.get(dcfg.get("alert_unheld", "keywords"), ALERT_LEVELS["keywords"])
+        alert_dart = [] if "dart" in newly else [
+            x for x in new_dart
+            if not x.get("quiet") and x["level"] in (lv_held if x.get("held", True) else lv_unheld)]
+        for x in new_dart:
+            x.pop("quiet", None)
         alert_g2b = [] if "g2b" in newly else new_g2b
 
         embeds = []
@@ -774,9 +844,10 @@ class Radar:
             words = {"ok": "정상 ✅", "fail": "오류 ⚠️", "off": "미설정"}
             lines = [f"• {LABEL[s]}: {words.get(state.get('status', {}).get(s, {}).get('state'), '-')}"
                      for s in ("dart", "g2b")]
+            n_held, n_unheld = count_held(cfg)
             embeds.append(system_embed(
                 "✅ 투자 레이더 연결 완료",
-                f"관심 종목 {len(cfg.get('dart', {}).get('companies', []))}개를 지켜보기 시작했어요.\n"
+                f"보유 {n_held}개 · 미보유 {n_unheld}개 종목을 지켜보기 시작했어요.\n"
                 + "\n".join(lines) +
                 f"\n\n최근 공시 {len(new_dart)}건, 관련 개찰 {len(new_g2b)}건은 대시보드에만 담았어요. "
                 "알림은 지금부터 새로 뜨는 것만 보낼게요."))
@@ -789,7 +860,7 @@ class Radar:
         embeds += [embed_g2b(x) for x in alert_g2b]
         embeds += [embed_event(ev, d) for ev, d in reminders]
         embeds += alerts
-        if any(x["level"] == "danger" for x in alert_dart):
+        if any(x["level"] == "danger" and x.get("held", True) for x in alert_dart):
             state["pending_mention"] = cfg.get("discord", {}).get("mention_on_danger", "") or ""
         if embeds:
             state["pending"] = (state.get("pending", []) + embeds)[-PENDING_MAX:]
@@ -805,7 +876,7 @@ class Radar:
             data["saved_at"] = t.isoformat(timespec="seconds")
         data["title"] = dash.get("title", "투자 레이더")
         data["events"] = cfg.get("events", [])
-        data["watchlist"] = [{"name": c.get("name"), "stock_code": c.get("stock_code")}
+        data["watchlist"] = [{"name": c.get("name"), "stock_code": c.get("stock_code"), "held": is_held(c)}
                              for c in cfg.get("dart", {}).get("companies", [])]
         data["schedule_text"] = schedule_text(self.sched)
         data["device"] = cfg.get("device_name", "")
