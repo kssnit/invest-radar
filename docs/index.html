@@ -378,6 +378,9 @@
     if (v == null || isNaN(v)) return "-";
     return Number(v).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
   }
+  function fmtP(e, v) { return (e.currency === "USD" ? "$" : "") + fmt(v, digits(e)); }   // 가격 (달러면 $ 붙임)
+  function shortCode(c) { return String(c || "").replace(/\.[A-Z]$/, ""); }            // NVDA.O → NVDA
+  var TYPE_TAG = { etf: "ETF", us: "미국" };
   function dirOf(v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }
   function chgHTML(e, withAbs) {
     if (e.chg == null) return '<span class="flat">-</span>';
@@ -752,11 +755,11 @@
       return;
     }
     var d = digits(e);
-    $("chName").innerHTML = (e.code ? "" : iconHTML(iconKey(e), "lg")) + "<span>" + esc(e.name + (e.code ? " · " + e.code : "")) + "</span>";
-    $("chPrice").textContent = fmt(e.price, d);
+    $("chName").innerHTML = (e.kind === "us_stock" ? iconHTML("us", "lg") : e.code ? "" : iconHTML(iconKey(e), "lg")) + "<span>" + esc(e.name + (e.code ? " · " + shortCode(e.code) : "")) + "</span>";
+    $("chPrice").textContent = fmtP(e, e.price);
     $("chChg").innerHTML = chgHTML(e);
-    var mk = e.code ? "kr" : marketOf(e.group), w = mk ? (PH[phaseNow(mk, e)] || PH.closed)[0] : "";
-    $("chSub").textContent = [e.group || (e.held === false ? "미보유 관심 종목" : e.code ? "보유 종목" : ""), w,
+    var mk = e.kind === "us_stock" ? "us" : e.code ? "kr" : marketOf(e.group), w = mk ? (PH[phaseNow(mk, e)] || PH.closed)[0] : "";
+    $("chSub").textContent = [e.group || (e.code ? (e.held === false ? "미보유 " : "보유 ") + (e.type === "us" ? "미국 주식" : e.type === "etf" ? "ETF" : "종목") : ""), w,
       e.time ? hhmm(e.time * 1000) + " 기준" : ""].filter(Boolean).join(" · ");
     drawChart($("chart"), e, ui.range);
     var pos = e.hi52 != null && e.lo52 != null && e.hi52 > e.lo52 ? Math.max(0, Math.min(100, (e.price - e.lo52) / (e.hi52 - e.lo52) * 100)) : null;
@@ -865,10 +868,11 @@
       var w = r.w, m = r.m, held = w.held !== false, list = news[w.stock_code] || [];
       var sym = m && !m.missing ? m.symbol : "";
       var h = '<article class="card' + (held ? "" : " unheld") + (sym && ui.sel === sym ? " sel" : "") + '" tabindex="0" data-sym="' + esc(sym) + '" aria-label="' + esc(w.name) + ' 차트 보기">' +
-        '<div class="c-top"><span class="c-name">' + esc(w.name) + '</span><span class="tag ' + (held ? "held" : "unheld") + '">' + (held ? "보유" : "미보유") + '</span><span class="c-code num">' + esc(w.stock_code) + "</span></div>";
+        '<div class="c-top">' + (w.type === "us" ? iconHTML("us", "sm") : "") + '<span class="c-name">' + esc(w.name) + '</span><span class="tag ' + (held ? "held" : "unheld") + '">' + (held ? "보유" : "미보유") + "</span>" +
+        (TYPE_TAG[w.type] ? '<span class="tag">' + TYPE_TAG[w.type] + "</span>" : "") + '<span class="c-code num">' + esc(shortCode(w.stock_code)) + "</span></div>";
       if (m && !m.missing) {
         var d = digits(m), ind = m.ind || {};
-        h += '<div class="c-price"><b class="num">' + fmt(m.price, d) + "</b>" + '<span class="chg">' + chgHTML(m) + "</span></div>" +
+        h += '<div class="c-price"><b class="num">' + fmtP(m, m.price) + "</b>" + '<span class="chg">' + chgHTML(m) + "</span></div>" +
           '<div class="c-spark">' + (goodIntra(m).length ? sparkSVG(goodIntra(m), { base: m.prev, dir: dirOf(m.chg), h: 46, domain: m.ses ? [m.ses[0] * 1000, m.ses[1] * 1000] : null })
             : sparkSVG(dailyPts(m, "3m"), { dir: dirOf(m.chg), h: 46 })) + "</div>" +
           meterHTML(ind.score);
@@ -891,7 +895,8 @@
         var lv = { danger: ["warn", "주의"], good: ["good", "호재"], info: ["", "공시"] }[list[0].level] || ["", "공시"];
         h += '<button type="button" class="c-news" data-corp="' + esc(w.stock_code) + '"><span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="t">' + esc(list[0].title) + '</span><span class="num" style="color:var(--ink-3)">' + list.length + "건</span></button>";
       } else {
-        h += '<div class="c-news" style="cursor:default"><span class="t" style="color:var(--ink-3)">최근 공시 없음</span></div>';
+        var why = w.type === "etf" ? "ETF라 공시 알림은 없어요" : w.type === "us" ? "미국 주식이라 DART 공시 알림은 없어요" : "최근 공시 없음";
+        h += '<div class="c-news" style="cursor:default"><span class="t" style="color:var(--ink-3)">' + why + "</span></div>";
       }
       return h + "</article>";
     }).join("");

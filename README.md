@@ -138,6 +138,13 @@ https://www.data.go.kr 로그인 → **조달청_나라장터 낙찰정보서비
   ```json
   {"name": "한국항공우주", "stock_code": "047810", "held": false},
   ```
+- **ETF·미국 주식 추가**: `"type"` 을 붙이면 공시 확인 없이 시세만 받아요 (카드·차트·지표는 똑같이 나와요).
+  ```json
+  {"name": "KODEX 미국S&P500(H)", "stock_code": "449180", "type": "etf", "held": true},
+  {"name": "엔비디아", "stock_code": "NVDA.O", "type": "us", "held": true},
+  {"name": "코카콜라", "stock_code": "KO", "type": "us", "held": true},
+  ```
+  미국 주식은 나스닥이면 `.O` 를 붙이고(NVDA.O), 뉴욕증권거래소는 티커만 적어도 봇이 알맞은 코드를 찾아요.
 - **보유 / 미보유 바꾸기**: 그 종목의 `"held"` 만 `true`(보유) ↔ `false`(미보유)로 바꾸면 돼요.
   | | 디스코드 알림 | 대시보드 | 확인 간격 |
   |---|---|---|---|

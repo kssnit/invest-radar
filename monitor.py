@@ -36,7 +36,7 @@ try:
 except ImportError:  # 윈도우
     fcntl = None
 
-VERSION = "2.3-phone"
+VERSION = "2.4-phone"
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.json")
@@ -79,6 +79,13 @@ DEFAULT_SCHEDULE = {
     "dart_unheld_every": 3,
 }
 ALERT_LEVELS = {"all": {"danger", "good", "info"}, "keywords": {"danger", "good"}, "none": set()}
+
+
+STOCK_TYPES = ("stock", "etf", "us")   # stock: 국내 상장사(DART 공시 확인) / etf: 국내 ETF / us: 미국 주식 (둘 다 시세만)
+
+
+def is_dart(c):
+    return c.get("type", "stock") == "stock"
 
 
 def is_held(c):
@@ -157,8 +164,13 @@ def validate_config(cfg):
     if not isinstance(comps, list):
         return "dart.companies 가 목록이 아님"
     for c in comps:
-        if not isinstance(c, dict) or not str(c.get("stock_code", "")).isdigit():
-            return f"종목 항목 오류: {c}"
+        if not isinstance(c, dict) or c.get("type", "stock") not in STOCK_TYPES:
+            return f"종목 항목 오류 (type 은 stock / etf / us): {c}"
+        code = str(c.get("stock_code", ""))
+        if c.get("type", "stock") in ("stock", "etf") and not (len(code) == 6 and code.isalnum()):
+            return f"국내 종목코드는 6자리여야 해요: {c}"
+        if c.get("type") == "us" and (not code or " " in code):
+            return f"미국 주식은 stock_code 에 티커를 적어요 (예: NVDA.O): {c}"
         if "held" in c and not isinstance(c["held"], bool):
             return f"held 는 true 또는 false 로 적어야 해요: {c}"
     for k in ("alert_held", "alert_unheld"):
@@ -332,7 +344,7 @@ def classify_report(name, dcfg):
 
 def resolve_corp_codes(dcfg, state, key):
     """종목코드(6자리) → DART 고유번호(8자리). 한 번 찾으면 기억해 둡니다."""
-    companies = dcfg.get("companies", [])
+    companies = [c for c in dcfg.get("companies", []) if is_dart(c)]
     cache = state.setdefault("corp_codes", {})
     missing = {c["stock_code"] for c in companies
                if not c.get("corp_code") and c.get("stock_code") not in cache}
@@ -548,8 +560,8 @@ def embed_dart(it):
     }
 
 
-def count_held(cfg):
-    comps = cfg.get("dart", {}).get("companies", [])
+def count_held(cfg, dart_only=False):
+    comps = [c for c in cfg.get("dart", {}).get("companies", []) if is_dart(c) or not dart_only]
     h = sum(1 for c in comps if is_held(c))
     return h, len(comps) - h
 
@@ -767,6 +779,12 @@ def fetch_daily(tgt):
     elif kind == "world_index":
         rows = parse_rows(json.loads(naver_get(
             f"{NAVER_CHART}/foreign/index/{urllib.parse.quote(code, safe='')}?periodType=dayCandle")))
+    elif kind == "us_stock":
+        base = f"{NAVER_CHART}/foreign/item/{urllib.parse.quote(tgt.get('rcode') or code, safe='')}?periodType=dayCandle"
+        exch = tgt.get("exch") or ""
+        rows = parse_rows(json.loads(naver_get(base + (f"&stockExchangeType={exch}" if exch else ""))))
+        if not rows and exch:
+            rows = parse_rows(json.loads(naver_get(base)))
     else:
         rows = {}
         for page in range(1, 5):
@@ -812,7 +830,7 @@ def session_window(kind, ts):
     """지금 진행 중이거나 가장 최근의 정규장 [시작, 끝] (epoch). 공휴일은 따지지 않아요."""
     if kind in ("kr_stock", "kr_index"):
         off, hm, length = 9 * 3600, (9, 0), 6.5 * 3600
-    elif kind == "world_index":
+    elif kind in ("world_index", "us_stock"):
         utc = datetime.fromtimestamp(ts, timezone.utc)
         off = (-4 if _us_dst((utc - timedelta(hours=5)).date()) else -5) * 3600
         hm, length = (9, 30), 6.5 * 3600
@@ -845,7 +863,7 @@ def merged_closes(h, q):
     """일봉 종가에 오늘 시세를 붙이거나(새 날) 바꿔 끼운(같은 날) 날짜·종가 목록."""
     days, closes = list(h.get("d", [])), list(h.get("c", []))
     if q and q.get("price") is not None and q.get("time"):
-        today = _kst_day(q["time"]) if q.get("kind") != "world_index" else _kst_day(q["time"] - 14 * 3600)
+        today = _kst_day(q["time"] - 14 * 3600) if q.get("kind") in ("world_index", "us_stock") else _kst_day(q["time"])
         if days and days[-1] == today:
             closes[-1] = q["price"]
         elif not days or today > days[-1]:
@@ -924,7 +942,9 @@ def market_targets(cfg):
         out.append({"kind": ix.get("kind", "world_index"), "code": ix.get("code") or ix["symbol"], "name": ix["name"],
                     "group": ix.get("group", ""), "category": ix.get("category", "")})
     for c in cfg.get("dart", {}).get("companies", []):
-        out.append({"kind": "kr_stock", "code": c["stock_code"], "name": c.get("name"), "held": is_held(c)})
+        kind = "us_stock" if c.get("type") == "us" else "kr_stock"
+        out.append({"kind": kind, "code": c["stock_code"], "name": c.get("name"), "held": is_held(c),
+                    "type": c.get("type", "stock"), "exchange": c.get("exchange", "")})
     return out
 
 
@@ -945,9 +965,10 @@ def market_entry(tgt, cache, ts):
     e = {k: tgt[k] for k in ("name", "group", "held") if tgt.get(k) not in (None, "")}
     e["symbol"] = tgt["code"]
     e["kind"] = tgt["kind"]
-    if tgt["kind"] == "kr_stock":
+    if tgt["kind"] in ("kr_stock", "us_stock"):
         e["code"] = tgt["code"]
-        e["currency"] = "KRW"
+        e["type"] = tgt.get("type", "stock")
+        e["currency"] = "USD" if tgt["kind"] == "us_stock" else "KRW"
     q, h = cache.get("q", {}).get(key), cache.get("h", {}).get(key)
     if not q or q.get("price") is None:
         e["missing"] = True
@@ -965,7 +986,7 @@ def market_entry(tgt, cache, ts):
     if tgt["kind"] == "marketindex":
         pts = [p for p in pts if p[0] >= ts - 24 * 3600]
     if len(pts) >= 2:
-        idx = _thin_idx(len(pts), 120 if tgt["kind"] != "kr_stock" else 80)
+        idx = _thin_idx(len(pts), 80 if tgt["kind"] in ("kr_stock", "us_stock") else 120)
         e["t0"] = pts[idx[0]][0]
         e["tm"] = [(pts[i][0] - e["t0"]) // 60 for i in idx]
         e["iv"] = [r(pts[i][1]) for i in idx]
@@ -1103,7 +1124,7 @@ class Radar:
         a, b = s["fast_hours"]
         fast_h = max(0, b - a)
         runs = fast_h * 3600 / s["dart_fast_seconds"] + (24 - fast_h) * 3600 / s["dart_slow_seconds"]
-        held, unheld = count_held(self.cfg)
+        held, unheld = count_held(self.cfg, dart_only=True)
         return int(runs * held + runs * unheld / max(1, int(s.get("dart_unheld_every", 1))))
 
     def sync_config(self, alerts):
@@ -1185,15 +1206,33 @@ class Radar:
             return [t for t in targets if t["kind"] == kind]
 
         # 1) 한 번에 여러 개 받는 것들
+        def rows_of(obj):
+            out = {}
+            for d in (obj.get("datas") or []) if isinstance(obj, dict) else []:
+                if isinstance(d, dict):
+                    for k in ("itemCode", "reutersCode", "symbolCode", "code"):
+                        if d.get(k):
+                            out[str(d[k])] = d
+            return out
+
+        usmap = cache.setdefault("usmap", {})
+        usfail = cache.setdefault("usfail", {})
+        usx = cache.setdefault("usx", {})
+        for t in targets:
+            if t["kind"] == "us_stock":
+                t["rcode"] = usmap.get(t["code"]) or t["code"]
+
+        def qcode(t):
+            return t.get("rcode") or t["code"]
+
         for kind, path in (("kr_stock", "domestic/stock"), ("kr_index", "domestic/index"),
-                           ("world_index", "worldstock/index")):
+                           ("world_index", "worldstock/index"), ("us_stock", "worldstock/stock")):
             group = by_kind(kind)
             for i in range(0, len(group), 20):
                 part = group[i:i + 20]
                 try:
-                    obj = json.loads(naver_get(f"{NAVER_POLL}/{path}/" +
-                                               ",".join(urllib.parse.quote(t["code"], safe="") for t in part)))
-                    rows = {_code_of(d): d for d in obj.get("datas", []) if isinstance(d, dict)}
+                    rows = rows_of(json.loads(naver_get(f"{NAVER_POLL}/{path}/" +
+                                                        ",".join(urllib.parse.quote(qcode(t), safe="") for t in part))))
                     if not rows:
                         raise RuntimeError("빈 응답")
                 except Exception as e:  # noqa: BLE001
@@ -1203,8 +1242,8 @@ class Radar:
                     rows = {}
                     for j, t in enumerate(part):  # 묶음이 실패하면 하나씩 다시 (코드 하나가 틀린 경우 대비)
                         try:
-                            one = json.loads(naver_get(f"{NAVER_POLL}/{path}/" + urllib.parse.quote(t["code"], safe="")))
-                            rows.update({_code_of(d): d for d in one.get("datas", []) if isinstance(d, dict)})
+                            rows.update(rows_of(json.loads(naver_get(f"{NAVER_POLL}/{path}/" +
+                                                                     urllib.parse.quote(qcode(t), safe="")))))
                         except Exception as e2:  # noqa: BLE001
                             errors[t["name"]] = _trim(str(e2), 80)
                             if j == 0 and len(part) > 1:  # 첫 개도 안 되면 서버·인터넷 문제 → 나머지는 건너뜀
@@ -1213,10 +1252,30 @@ class Radar:
                                 break
                         time.sleep(0.2)
                 for t in part:
-                    if t["code"] in rows:
-                        store(t, parse_poll_row(rows[t["code"]]))
-                    elif t["name"] not in errors:
-                        errors[t["name"]] = "응답에 없음"
+                    d = rows.get(qcode(t))
+                    # 미국 주식 코드를 못 찾으면 거래소 꼬리표(.O 나스닥 / .N·없음 뉴욕 / .K 아멕스)를 붙여 한 번 찾아봐요
+                    if d is None and kind == "us_stock" and "." not in t["code"] and ts - usfail.get(t["code"], 0) > 6 * 3600:
+                        for cand in (t["code"] + ".O", t["code"] + ".N", t["code"] + ".K"):
+                            try:
+                                got = rows_of(json.loads(naver_get(f"{NAVER_POLL}/{path}/" + urllib.parse.quote(cand, safe=""))))
+                            except Exception:  # noqa: BLE001
+                                got = {}
+                            time.sleep(0.2)
+                            if cand in got:
+                                d, usmap[t["code"]], t["rcode"] = got[cand], cand, cand
+                                break
+                        else:
+                            usfail[t["code"]] = ts
+                    if d is None:
+                        errors.setdefault(t["name"], "응답에 없음")
+                        continue
+                    errors.pop(t["name"], None)
+                    if kind == "us_stock":
+                        ex = d.get("stockExchangeType")
+                        name = (ex.get("name") or ex.get("code")) if isinstance(ex, dict) else (ex or d.get("stockExchangeName"))
+                        if name:
+                            usx[t["code"]] = str(name).upper()
+                    store(t, parse_poll_row(d))
                 time.sleep(0.2)
         # 2) 환율·유가·금·국채
         for t in by_kind("marketindex"):
@@ -1253,6 +1312,9 @@ class Radar:
             h = cache["h"].get(key)
             if (h and ts - h.get("at", 0) < hist_s) or ts - cache["hfail"].get(key, 0) < 1800:
                 continue
+            if t["kind"] == "us_stock":
+                rc = qcode(t)
+                t["exch"] = usx.get(t["code"]) or t.get("exchange") or ("NASDAQ" if rc.endswith(".O") else "NYSE")
             try:
                 cache["h"][key] = dict(fetch_daily(t), at=ts)
             except Exception as e:  # noqa: BLE001
@@ -1277,8 +1339,8 @@ class Radar:
         stamps = [q.get("at", 0) for q in cache["q"].values()]
         payload = {"updated_at": datetime.fromtimestamp(max(stamps), KST).isoformat(timespec="seconds") if stamps else "",
                    "source": "네이버 증권",
-                   "indices": [market_entry(x, cache, ts) for x in targets if x["kind"] != "kr_stock"],
-                   "stocks": [market_entry(x, cache, ts) for x in targets if x["kind"] == "kr_stock"]}
+                   "indices": [market_entry(x, cache, ts) for x in targets if x["kind"] not in ("kr_stock", "us_stock")],
+                   "stocks": [market_entry(x, cache, ts) for x in targets if x["kind"] in ("kr_stock", "us_stock")]}
         self.market_text = dumps(payload)
 
         if self.market_upload_err:
@@ -1339,7 +1401,7 @@ class Radar:
                         state["primed_corps"] = sorted(primed_corps | set(queried))
                         status_changed = True
                     state["seen_dart"] = sorted(seen)[-4000:]
-                    n_held, n_unheld = count_held(cfg)
+                    n_held, n_unheld = count_held(cfg, dart_only=True)
                     msg = f"정상 · 보유 {n_held}개 · 미보유 {n_unheld}개"
                     if problems:
                         msg += " · 못 찾은 종목코드: " + ", ".join(problems)
@@ -1441,7 +1503,8 @@ class Radar:
             data["saved_at"] = t.isoformat(timespec="seconds")
         data["title"] = dash.get("title", "투자 레이더")
         data["events"] = cfg.get("events", [])
-        data["watchlist"] = [{"name": c.get("name"), "stock_code": c.get("stock_code"), "held": is_held(c)}
+        data["watchlist"] = [{"name": c.get("name"), "stock_code": c.get("stock_code"), "held": is_held(c),
+                              "type": c.get("type", "stock")}
                              for c in cfg.get("dart", {}).get("companies", [])]
         data["schedule_text"] = schedule_text(self.sched)
         data["device"] = cfg.get("device_name", "")

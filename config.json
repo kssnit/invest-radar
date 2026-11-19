@@ -41,6 +41,14 @@
    {"name": "현대무벡스", "stock_code": "319400", "held": true},
    {"name": "카카오", "stock_code": "035720", "held": true},
    {"name": "대한항공", "stock_code": "003490", "held": true},
+   {"name": "KODEX 미국S&P500(H)", "stock_code": "449180", "type": "etf", "held": true},
+   {"name": "TIGER 미국배당다우존스타겟커버드콜2호", "stock_code": "458760", "type": "etf", "held": true},
+   {"name": "KODEX 미국AI전력핵심인프라", "stock_code": "487230", "type": "etf", "held": true},
+   {"name": "엔비디아", "stock_code": "NVDA.O", "type": "us", "held": true},
+   {"name": "테슬라", "stock_code": "TSLA.O", "type": "us", "held": true},
+   {"name": "존슨앤드존슨", "stock_code": "JNJ", "type": "us", "held": true},
+   {"name": "프록터앤드갬블", "stock_code": "PG", "type": "us", "held": true},
+   {"name": "코카콜라", "stock_code": "KO", "type": "us", "held": true},
    {"name": "한화에어로스페이스", "stock_code": "012450", "held": false}
   ],
   "danger_keywords": [
