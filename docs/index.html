@@ -206,6 +206,7 @@
   .sig.neu { background: var(--bg-2); border-color: var(--line); color: var(--ink-2); } .sig.neu b { background: var(--ink-3); }
   .sig:hover, .sig:focus-visible { filter: brightness(1.15); }
   .meter[data-tip] { cursor: help; }
+  .sigcount { display: none; gap: 8px; font-size: 12px; font-weight: 700; }
   .sig-legend { font-size: 11.5px; color: var(--ink-3); margin-left: auto; }
   .siglist { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
   .siglist li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
@@ -254,6 +255,7 @@
     .card { padding: 12px; gap: 7px; border-radius: 14px; }
     .card .c-code, .card .c-stats, .card .c-tags, .card .sigs, .card .r52c, .card .c-news, .card .meter > span:first-child { display: none; }
     #tipbox { max-width: calc(100vw - 24px); }
+    .card .sigcount { display: flex; }
     .card .meter { grid-template-columns: 1fr auto; gap: 7px; font-size: 11.5px; }
     .card .meter .val { min-width: 0; }
     .c-name { font-size: 14px; }
@@ -878,8 +880,10 @@
     $("holdSeg").innerHTML = [["", "전체", wl.length], ["held", "보유", nH], ["unheld", "미보유", wl.length - nH]].map(function (h) {
       return '<button type="button" data-hold="' + h[0] + '" aria-pressed="' + (ui.hold === h[0]) + '">' + h[1] + '<span class="n">' + h[2] + "</span></button>";
     }).join("");
-    $("sortSeg").innerHTML = [["default", "기본 순서"], ["pct", "등락률순"]].map(function (s) {
-      return '<button type="button" data-sort="' + s[0] + '" aria-pressed="' + (ui.sort === s[0]) + '">' + s[1] + "</button>";
+    $("sortSeg").innerHTML = [["default", "기본 순서", "config.json 에 적힌 순서 (보유 국내 주식 → ETF → 미국 주식 → 미보유)"], ["pct", "등락률순", "오늘 많이 오른 순"],
+      ["pos", "▲ 긍정 신호순", "긍정 신호가 많은 순 (같으면 부정 신호가 적은 순 → 기술 흐름 점수가 높은 순)"],
+      ["neg", "▼ 부정 신호순", "부정 신호가 많은 순 (같으면 긍정 신호가 적은 순 → 기술 흐름 점수가 낮은 순)"]].map(function (s) {
+      return '<button type="button" data-sort="' + s[0] + '" aria-pressed="' + (ui.sort === s[0]) + '" title="' + s[2] + '">' + s[1] + "</button>";
     }).join("");
   }
   // ---------- 신호: 숫자를 보고 왜 그런지 설명까지 만들어요 (참고용 지표, 매매 권유 아님)
@@ -966,6 +970,21 @@
     ((DATA && DATA.dart) || []).forEach(function (x) { (news[x.stock_code] = news[x.stock_code] || []).push(x); });
     var rows = wl.map(function (w, i) { return { w: w, m: stockByCode(w.stock_code), i: i }; });
     if (ui.sort === "pct") rows.sort(function (a, b) { return ((b.m && b.m.pct) != null ? b.m.pct : -999) - ((a.m && a.m.pct) != null ? a.m.pct : -999); });
+    if (ui.sort === "pos" || ui.sort === "neg") {
+      rows.forEach(function (r) {
+        var sl = r.m && !r.m.missing ? signals(r.m) : [];
+        r.np = sl.filter(function (x) { return x.k === "pos"; }).length;
+        r.nn = sl.filter(function (x) { return x.k === "neg"; }).length;
+        r.sc = r.m && r.m.ind && r.m.ind.score != null ? r.m.ind.score : 0;
+        r.ok = sl.length ? 1 : 0;   // 시세 없는 종목은 맨 뒤
+      });
+      var sgn = ui.sort === "pos" ? 1 : -1;
+      rows.sort(function (a, b) {
+        if (a.ok !== b.ok) return b.ok - a.ok;
+        var x = sgn > 0 ? (b.np - a.np) || (a.nn - b.nn) : (b.nn - a.nn) || (a.np - b.np);
+        return x || sgn * (b.sc - a.sc) || a.i - b.i;
+      });
+    }
     if (!rows.length) { $("cards").innerHTML = '<div class="empty">config.json 에 종목을 추가하면 여기에 보여요.</div>'; return; }
     $("cards").innerHTML = rows.map(function (r) {
       var w = r.w, m = r.m, held = w.held !== false, list = news[w.stock_code] || [];
@@ -990,6 +1009,9 @@
           h += '<div class="r52c" title="' + rangeLabel(m) + ' 최저 ~ 최고"><div class="rlab num" style="font-size:11.5px;color:var(--ink-3)"><span>' + rangeLabel(m) + " " + fmt(m.lo52, d) + "</span><span>" + fmt(m.hi52, d) + '</span></div><div class="rbar" style="margin:6px 0 2px"><i style="left:' + pos.toFixed(1) + '%"></i></div></div>';
         }
         h += sigsHTML(m);
+        var scnt = signals(m), cp = scnt.filter(function (x) { return x.k === "pos"; }).length, cn = scnt.filter(function (x) { return x.k === "neg"; }).length,
+          cw = scnt.filter(function (x) { return x.k === "warn" || x.k === "watch"; }).length;
+        h += '<div class="sigcount" title="긍정 · 부정 · 주의/관심 신호 개수"><span class="up">▲' + cp + '</span><span class="down">▼' + cn + "</span>" + (cw ? '<span style="color:var(--warn)">!' + cw + "</span>" : "") + "</div>";
       } else {
         h += '<div class="c-wait">' + (MARKET ? "이 종목 시세를 아직 받지 못했어요" : "시세 준비 중") + "</div>";
       }
