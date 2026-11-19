@@ -1,5 +1,5 @@
 // 투자 레이더 앱 껍데기: 화면 파일은 늘 새로 받고(인터넷이 안 될 때만 저장본), 시세·공시 데이터는 저장하지 않아요.
-const CACHE = "radar-shell-v2";
+const CACHE = "radar-shell-v3";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"];
 
 self.addEventListener("install", (e) => {
