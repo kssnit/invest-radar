@@ -1,10 +1,10 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-19T20:14:39+09:00",
+ "saved_at": "2026-11-19T20:51:25+09:00",
  "status": {
   "dart": {
    "state": "ok",
-   "message": "정상 · 종목 11개",
+   "message": "정상 · 보유 10개 · 미보유 1개",
    "since": ""
   },
   "g2b": {
@@ -168,49 +168,60 @@
  "watchlist": [
   {
    "name": "한화시스템",
-   "stock_code": "272210"
+   "stock_code": "272210",
+   "held": true
   },
   {
    "name": "LIG D&A",
-   "stock_code": "079550"
-  },
-  {
-   "name": "한화에어로스페이스",
-   "stock_code": "012450"
+   "stock_code": "079550",
+   "held": true
   },
   {
    "name": "한화솔루션",
-   "stock_code": "009830"
+   "stock_code": "009830",
+   "held": true
   },
   {
    "name": "삼성전자",
-   "stock_code": "005930"
+   "stock_code": "005930",
+   "held": true
   },
   {
    "name": "현대차",
-   "stock_code": "005380"
+   "stock_code": "005380",
+   "held": true
   },
   {
    "name": "대한광통신",
-   "stock_code": "010170"
+   "stock_code": "010170",
+   "held": true
   },
   {
    "name": "클로봇",
-   "stock_code": "466100"
+   "stock_code": "466100",
+   "held": true
   },
   {
    "name": "현대무벡스",
-   "stock_code": "319400"
+   "stock_code": "319400",
+   "held": true
   },
   {
    "name": "카카오",
-   "stock_code": "035720"
+   "stock_code": "035720",
+   "held": true
   },
   {
    "name": "대한항공",
-   "stock_code": "003490"
+   "stock_code": "003490",
+   "held": true
+  },
+  {
+   "name": "한화에어로스페이스",
+   "stock_code": "012450",
+   "held": false
   }
  ],
- "schedule_text": "평일 07~22시: 공시 1분·입찰 10분마다 / 그 외: 공시 10분·입찰 30분마다",
+ "schedule_text": "평일 07~22시: 공시 1분·입찰 10분마다 / 그 외: 공시 10분·입찰 30분마다 (미보유 종목 공시는 3배 간격)",
  "device": "갤럭시 S20"
 }
