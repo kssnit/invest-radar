@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-19T21:54:45+09:00",
+ "saved_at": "2026-11-19T22:07:09+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -18,9 +18,9 @@
    "since": ""
   },
   "market": {
-   "state": "fail",
-   "message": "시세를 받지 못했어요: 코스피 ^KS11: HTTP 429; 코스닥 ^KQ11: HTTP 429; S&P 500 ^GSPC: HTTP 429",
-   "since": "2026-11-19T21:54+09:00"
+   "state": "ok",
+   "message": "정상 · 지수 11개 · 종목 11개",
+   "since": ""
   }
  },
  "dart": [
