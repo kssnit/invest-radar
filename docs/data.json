@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-19T22:07:09+09:00",
+ "saved_at": "2026-11-19T23:05:43+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -19,7 +19,7 @@
   },
   "market": {
    "state": "ok",
-   "message": "정상 · 지수 11개 · 종목 11개",
+   "message": "정상 · 지수 11개 · 종목 19개",
    "since": ""
   }
  },
@@ -174,57 +174,116 @@
   {
    "name": "한화시스템",
    "stock_code": "272210",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "LIG D&A",
    "stock_code": "079550",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "한화솔루션",
    "stock_code": "009830",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "삼성전자",
    "stock_code": "005930",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "현대차",
    "stock_code": "005380",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "대한광통신",
    "stock_code": "010170",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "클로봇",
    "stock_code": "466100",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "현대무벡스",
    "stock_code": "319400",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "카카오",
    "stock_code": "035720",
-   "held": true
+   "held": true,
+   "type": "stock"
   },
   {
    "name": "대한항공",
    "stock_code": "003490",
-   "held": true
+   "held": true,
+   "type": "stock"
+  },
+  {
+   "name": "KODEX 미국S&P500(H)",
+   "stock_code": "449180",
+   "held": true,
+   "type": "etf"
+  },
+  {
+   "name": "TIGER 미국배당다우존스타겟커버드콜2호",
+   "stock_code": "458760",
+   "held": true,
+   "type": "etf"
+  },
+  {
+   "name": "KODEX 미국AI전력핵심인프라",
+   "stock_code": "487230",
+   "held": true,
+   "type": "etf"
+  },
+  {
+   "name": "엔비디아",
+   "stock_code": "NVDA.O",
+   "held": true,
+   "type": "us"
+  },
+  {
+   "name": "테슬라",
+   "stock_code": "TSLA.O",
+   "held": true,
+   "type": "us"
+  },
+  {
+   "name": "존슨앤드존슨",
+   "stock_code": "JNJ",
+   "held": true,
+   "type": "us"
+  },
+  {
+   "name": "프록터앤드갬블",
+   "stock_code": "PG",
+   "held": true,
+   "type": "us"
+  },
+  {
+   "name": "코카콜라",
+   "stock_code": "KO",
+   "held": true,
+   "type": "us"
   },
   {
    "name": "한화에어로스페이스",
    "stock_code": "012450",
-   "held": false
+   "held": false,
+   "type": "stock"
   }
  ],
  "schedule_text": "평일 07~22시: 공시 1분·입찰 10분마다 / 그 외: 공시 10분·입찰 30분마다 (미보유 종목 공시는 3배 간격)",
