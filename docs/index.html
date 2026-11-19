@@ -374,13 +374,22 @@
   // ---------- 시세 데이터
   function entries() { return MARKET ? (MARKET.indices || []).concat(MARKET.stocks || []) : []; }
   function bySym(sym) { var all = entries(); for (var i = 0; i < all.length; i++) if (all[i].symbol === sym) return all[i]; return null; }
+  // 자주 쓰는 지수 (네이버 코드 · 예전 코드)
+  var SYM = { ks: ["KOSPI", "^KS11"], kq: ["KOSDAQ", "^KQ11"], sp: [".INX", "^GSPC"], nq: [".IXIC", "^IXIC"], sox: [".SOX", "^SOX"], fx: ["FX_USDKRW", "KRW=X"] };
+  function pick1(key) { var l = SYM[key]; for (var i = 0; i < l.length; i++) { var e = bySym(l[i]); if (e && !e.missing) return e; } return null; }
   function stockByCode(code) { var s = (MARKET && MARKET.stocks) || []; for (var i = 0; i < s.length; i++) if (s[i].code === code) return s[i]; return null; }
-  function isOpen(e) { var now = Date.now() / 1000; return !!(e && e.ses && e.ses[0] <= now && now <= e.ses[1]); }
+  function isOpen(e) {
+    if (!e) return false;
+    var now = Date.now() / 1000, inSes = !!(e.ses && e.ses[0] <= now && now <= e.ses[1]);
+    if (e.st) return e.st === "OPEN" && (!e.ses || inSes);
+    return inSes;
+  }
   function sessionWord(e) {
-    if (!e || !e.ses) return "";
+    if (!e || (!e.ses && !e.st)) return "";
+    if (isOpen(e)) return "장중";
     var now = Date.now() / 1000;
-    if (now < e.ses[0]) return "개장 전";
-    return now <= e.ses[1] ? "장중" : "장 마감";
+    if (e.ses && now < e.ses[0]) return "개장 전";
+    return "장 마감";
   }
   function intraPts(e) {
     if (!e || !e.tm || !e.iv) return [];
@@ -438,6 +447,10 @@
   function drawChart(box, e, range) {
     var intraday = range === "1d";
     var pts = intraday ? intraPts(e) : dailyPts(e, range);
+    if (intraday && pts.length < 2 && dailyPts(e, "3m").length >= 2) {
+      intraday = false; range = "3m"; pts = dailyPts(e, "3m");
+      $("chSub").textContent += " · 오늘 흐름은 장이 열리면 쌓여요 (3개월 표시 중)";
+    }
     if (pts.length < 2) {
       box.innerHTML = '<div class="empty-c">' + (e ? "이 기간의 차트 데이터가 아직 없어요." : "시세가 들어오면 여기에 차트가 그려져요.") + "</div>";
       return;
@@ -558,15 +571,15 @@
   }
 
   function renderSessions() {
-    var ks = bySym("^KS11") || ((MARKET && MARKET.indices) || []).filter(function (x) { return x.group === "국내"; })[0];
-    var us = bySym("^GSPC") || ((MARKET && MARKET.indices) || []).filter(function (x) { return x.group === "미국"; })[0];
+    var ks = pick1("ks") || ((MARKET && MARKET.indices) || []).filter(function (x) { return x.group === "국내" && !x.missing; })[0];
+    var us = pick1("sp") || ((MARKET && MARKET.indices) || []).filter(function (x) { return x.group === "미국" && !x.missing; })[0];
     var h = "";
     [["국내", ks], ["미국", us]].forEach(function (g) {
       if (!g[1] || g[1].missing) return;
       var w = sessionWord(g[1]);
       h += '<span class="s"><b>' + g[0] + '</b><span class="tagstate' + (w === "장중" ? " live" : "") + '">' + (w || "-") + "</span></span>";
     });
-    if (MARKET && MARKET.updated_at) h += '<span class="src">시세 ' + esc(hhmm(Date.parse(MARKET.updated_at))) + " 기준 · Yahoo Finance 제공, 몇 분 늦을 수 있어요</span>";
+    if (MARKET && MARKET.updated_at) h += '<span class="src">시세 ' + esc(hhmm(Date.parse(MARKET.updated_at))) + " 기준 · " + esc(MARKET.source || "네이버 증권") + " 자료, 몇 분 늦을 수 있어요</span>";
     $("sessions").innerHTML = h;
   }
 
@@ -575,7 +588,7 @@
     var ix = (MARKET && MARKET.indices) || [];
     if (!ix.length) {
       $("strip").innerHTML = '<div class="notice strip-empty">' + (MARKET_ERR ?
-        "시세를 아직 불러오지 못했어요. 휴대폰 Termux에서 <code>radar update</code> 를 실행하면 몇 분 안에 코스피·미국 지수가 채워져요." :
+        "시세를 아직 불러오지 못했어요. 휴대폰 봇이 시세를 처음 올리기까지 몇 분 걸릴 수 있어요. 계속 비어 있으면 Termux에서 <code>radar update</code> 를 실행해 주세요." :
         "시세 불러오는 중…") + "</div>";
       return;
     }
@@ -587,13 +600,14 @@
         '<span class="t-name"><span>' + esc(e.name) + '</span><i class="dot' + (open ? " ok" : "") + '" title="' + (open ? "장중" : "장 마감") + '"></i></span>' +
         '<span class="t-price num">' + fmt(e.price, digits(e)) + "</span>" +
         '<span class="t-chg">' + chgHTML(e) + "</span>" +
-        sparkSVG(intraPts(e), { base: e.prev, dir: dirOf(e.chg), domain: e.ses ? [e.ses[0] * 1000, e.ses[1] * 1000] : null }) + "</button>";
+        (intraPts(e).length >= 2 ? sparkSVG(intraPts(e), { base: e.prev, dir: dirOf(e.chg), domain: e.ses ? [e.ses[0] * 1000, e.ses[1] * 1000] : null })
+          : sparkSVG(dailyPts(e, "3m"), { dir: dirOf(e.chg) })) + "</button>";
     }).join("");
   }
 
   // ---------- 큰 차트
   function defaultSel() {
-    var ks = bySym("^KS11"), us = bySym("^GSPC");
+    var ks = pick1("ks"), us = pick1("sp");
     if (ks && isOpen(ks)) return ks.symbol;
     if (us && isOpen(us)) return us.symbol;
     var h = +kstParts(Date.now()).hour;
@@ -640,12 +654,12 @@
   // ---------- 요약
   function renderSummary() {
     var li = [];
-    function q(sym, label) { var e = bySym(sym); return e && !e.missing ? (label || e.name) + " " + chgHTML(e, false) : ""; }
-    var kr = [q("^KS11"), q("^KQ11")].filter(Boolean);
+    function q(key, label) { var e = pick1(key); return e ? (label || e.name) + " " + chgHTML(e, false) : ""; }
+    var kr = [q("ks"), q("kq")].filter(Boolean);
     if (kr.length) li.push(["국내", kr.join(", ")]);
-    var us = [q("^GSPC", "S&P"), q("^IXIC", "나스닥"), q("^SOX", "반도체")].filter(Boolean);
+    var us = [q("sp", "S&P"), q("nq", "나스닥"), q("sox", "반도체")].filter(Boolean);
     if (us.length) li.push(["미국", us.join(", ")]);
-    var fx = bySym("KRW=X");
+    var fx = pick1("fx");
     if (fx && !fx.missing) li.push(["환율", "달러/원 <b class=\"num\">" + fmt(fx.price, 2) + "</b> " + chgHTML(fx)]);
     var mine = ((MARKET && MARKET.stocks) || []).filter(function (s) { return !s.missing && s.held !== false && s.pct != null; });
     if (mine.length) {
@@ -821,7 +835,7 @@
     renderPills(); renderSessions(); renderStrip(); renderChart(); renderSummary(); renderEvents();
     renderHoldSeg(); renderCards(); renderFeedSegs(); renderFeed();
     $("foot").innerHTML = (DATA && DATA.schedule_text ? "확인 주기 · " + esc(DATA.schedule_text) + "<br>" : "") +
-      "화면은 2분마다 새로 불러와요. 시세는 Yahoo Finance, 공시는 DART, 입찰은 나라장터 자료예요.<br>" +
+      "화면은 2분마다 새로 불러와요. 시세는 네이버 증권, 공시는 DART, 입찰은 나라장터 자료예요.<br>" +
       "기술 흐름·RSI 같은 지표는 참고용이고, 투자 판단의 책임은 본인에게 있어요.";
   }
 

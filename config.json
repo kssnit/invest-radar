@@ -60,19 +60,20 @@
   "open_seconds": 120,
   "closed_minutes": 30,
   "history_hours": 6,
+  "intraday_minutes": 15,
   "upload_seconds": 120,
   "indices": [
-   {"name": "코스피", "symbol": "^KS11", "group": "국내"},
-   {"name": "코스닥", "symbol": "^KQ11", "group": "국내"},
-   {"name": "S&P 500", "symbol": "^GSPC", "group": "미국"},
-   {"name": "나스닥", "symbol": "^IXIC", "group": "미국"},
-   {"name": "다우존스", "symbol": "^DJI", "group": "미국"},
-   {"name": "필라델피아 반도체", "symbol": "^SOX", "group": "미국"},
-   {"name": "VIX", "symbol": "^VIX", "group": "미국"},
-   {"name": "달러/원", "symbol": "KRW=X", "group": "환율·원자재"},
-   {"name": "WTI 유가", "symbol": "CL=F", "group": "환율·원자재"},
-   {"name": "국제 금", "symbol": "GC=F", "group": "환율·원자재"},
-   {"name": "미국채 10년", "symbol": "^TNX", "group": "환율·원자재"}
+   {"name": "코스피", "symbol": "KOSPI", "kind": "kr_index", "group": "국내"},
+   {"name": "코스닥", "symbol": "KOSDAQ", "kind": "kr_index", "group": "국내"},
+   {"name": "S&P 500", "symbol": ".INX", "kind": "world_index", "group": "미국"},
+   {"name": "나스닥", "symbol": ".IXIC", "kind": "world_index", "group": "미국"},
+   {"name": "다우존스", "symbol": ".DJI", "kind": "world_index", "group": "미국"},
+   {"name": "필라델피아 반도체", "symbol": ".SOX", "kind": "world_index", "group": "미국"},
+   {"name": "VIX", "symbol": ".VIX", "kind": "world_index", "group": "미국"},
+   {"name": "달러/원", "symbol": "FX_USDKRW", "kind": "marketindex", "category": "exchange", "group": "환율·원자재"},
+   {"name": "WTI 유가", "symbol": "CLcv1", "kind": "marketindex", "category": "energy", "group": "환율·원자재"},
+   {"name": "국제 금", "symbol": "GCcv1", "kind": "marketindex", "category": "metals", "group": "환율·원자재"},
+   {"name": "미국채 10년", "symbol": "US10YT=RR", "kind": "marketindex", "category": "bond", "group": "환율·원자재"}
   ]
  },
 
