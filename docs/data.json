@@ -1,9 +1,211 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "",
- "status": {},
- "dart": [],
+ "saved_at": "2026-11-19T20:14:39+09:00",
+ "status": {
+  "dart": {
+   "state": "ok",
+   "message": "정상 · 종목 11개",
+   "since": ""
+  },
+  "g2b": {
+   "state": "ok",
+   "message": "정상",
+   "since": ""
+  }
+ },
+ "dart": [
+  {
+   "id": "20261119000011",
+   "corp": "카카오",
+   "stock_code": "035720",
+   "title": "주식등의대량보유상황보고서(약식)",
+   "date": "2026-11-19",
+   "filer": "막시모피티이엘티디",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261119000011",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261118800330",
+   "corp": "대한항공",
+   "stock_code": "003490",
+   "title": "기업설명회(IR)개최(안내공시)",
+   "date": "2026-11-18",
+   "filer": "대한항공",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261118800330",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261118000151",
+   "corp": "삼성전자",
+   "stock_code": "005930",
+   "title": "임원ㆍ주요주주특정증권등소유상황보고서",
+   "date": "2026-11-18",
+   "filer": "GOYAL SIDDHARTH",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261118000151",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261118000053",
+   "corp": "한화시스템",
+   "stock_code": "272210",
+   "title": "특수관계인과의보험거래",
+   "date": "2026-11-18",
+   "filer": "한화시스템",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261118000053",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261117800492",
+   "corp": "LIG D&A",
+   "stock_code": "079550",
+   "title": "[기재정정]거래처와의거래중단",
+   "date": "2026-11-17",
+   "filer": "LIG디펜스앤에어로스페이스",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261117800492",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261116001482",
+   "corp": "삼성전자",
+   "stock_code": "005930",
+   "title": "분기보고서 (2026.09)",
+   "date": "2026-11-16",
+   "filer": "삼성전자",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261116001482",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261116001437",
+   "corp": "현대차",
+   "stock_code": "005380",
+   "title": "분기보고서 (2026.09)",
+   "date": "2026-11-16",
+   "filer": "현대자동차",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261116001437",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261116001260",
+   "corp": "클로봇",
+   "stock_code": "466100",
+   "title": "분기보고서 (2026.09)",
+   "date": "2026-11-16",
+   "filer": "클로봇",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261116001260",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261116001213",
+   "corp": "현대무벡스",
+   "stock_code": "319400",
+   "title": "분기보고서 (2026.09)",
+   "date": "2026-11-16",
+   "filer": "현대무벡스",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261116001213",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261116000767",
+   "corp": "현대차",
+   "stock_code": "005380",
+   "title": "임원ㆍ주요주주특정증권등소유상황보고서",
+   "date": "2026-11-16",
+   "filer": "박무곤",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261116000767",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  },
+  {
+   "id": "20261116000096",
+   "corp": "LIG D&A",
+   "stock_code": "079550",
+   "title": "분기보고서 (2026.09)",
+   "date": "2026-11-16",
+   "filer": "LIG디펜스앤에어로스페이스",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261116000096",
+   "level": "info",
+   "first_seen": "2026-11-19T20:14:39+09:00"
+  }
+ ],
  "g2b": [],
- "events": [],
- "watchlist": []
+ "events": [
+  {
+   "name": "Indo Defence 2026",
+   "start": "2026-11-18",
+   "end": "2026-11-21",
+   "place": "인도네시아 자카르타",
+   "note": "인도네시아가 천궁-II 포대 2개 도입 검토 중 (한화시스템 레이더)"
+  },
+  {
+   "name": "LIG D&A 집행정지 결정 시한",
+   "start": "2026-11-20",
+   "end": "2026-11-20",
+   "place": "서울행정법원",
+   "note": "임시 집행정지 효력 만료일. 인용이면 입찰 자격 유지, 기각이면 21일부터 2년 입찰 제한"
+  },
+  {
+   "name": "IDEX 2027",
+   "start": "2027-01-25",
+   "end": "2027-01-29",
+   "place": "UAE 아부다비",
+   "note": "UAE가 전시 기간에 계약을 공개 발표하는 중동 최대 방산전시회"
+  }
+ ],
+ "watchlist": [
+  {
+   "name": "한화시스템",
+   "stock_code": "272210"
+  },
+  {
+   "name": "LIG D&A",
+   "stock_code": "079550"
+  },
+  {
+   "name": "한화에어로스페이스",
+   "stock_code": "012450"
+  },
+  {
+   "name": "한화솔루션",
+   "stock_code": "009830"
+  },
+  {
+   "name": "삼성전자",
+   "stock_code": "005930"
+  },
+  {
+   "name": "현대차",
+   "stock_code": "005380"
+  },
+  {
+   "name": "대한광통신",
+   "stock_code": "010170"
+  },
+  {
+   "name": "클로봇",
+   "stock_code": "466100"
+  },
+  {
+   "name": "현대무벡스",
+   "stock_code": "319400"
+  },
+  {
+   "name": "카카오",
+   "stock_code": "035720"
+  },
+  {
+   "name": "대한항공",
+   "stock_code": "003490"
+  }
+ ],
+ "schedule_text": "평일 07~22시: 공시 1분·입찰 10분마다 / 그 외: 공시 10분·입찰 30분마다",
+ "device": "갤럭시 S20"
 }
