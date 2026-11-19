@@ -38,7 +38,7 @@ try:
 except ImportError:  # 윈도우
     fcntl = None
 
-VERSION = "2.5-phone"
+VERSION = "2.6-phone"
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.json")
@@ -1017,7 +1017,158 @@ def _rounder(e):
     return r
 
 
-def market_entry(tgt, cache, ts):
+def _clip(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def _money(v, cur):
+    if v is None:
+        return "-"
+    if cur == "USD":
+        return f"${v:,.2f}"
+    return f"{v:,.0f}" if cur == "KRW" or abs(v) >= 1000 else f"{v:,.2f}"
+
+
+def outlook(e, closes, kind, ctx):
+    """1~2일 단기 전망: 추세·모멘텀·과열·거래량·뉴스·공시·시장 분위기를 점수로 합친 규칙 기반 추정."""
+    ind, p, cur, code = e.get("ind") or {}, e.get("price"), e.get("currency"), e.get("code")
+    F = []
+
+    def add(pts, t, why):
+        pts = int(round(pts))
+        if pts:
+            F.append({"p": pts, "t": t, "why": why})
+
+    ma5, ma20, ma60 = ind.get("ma5"), ind.get("ma20"), ind.get("ma60")
+    if ma5 and ma20 and ma60:
+        if ma5 > ma20 > ma60:
+            add(15, "정배열", "5일·20일·60일 평균선이 위에서부터 차례로 놓여 있어 상승 추세가 이어지는 중이에요.")
+        elif ma5 < ma20 < ma60:
+            add(-15, "역배열", "5일·20일·60일 평균선이 아래에서부터 차례로 놓여 있어 하락 추세가 이어지는 중이에요.")
+    if ma20 and p:
+        gap = (p - ma20) / ma20 * 100
+        add(10 if p >= ma20 else -10, "20일선 위" if p >= ma20 else "20일선 아래",
+            f"현재가 {_money(p, cur)}가 20일 평균 {_money(ma20, cur)}보다 {abs(gap):.1f}% {'높아' if p >= ma20 else '낮아'}요.")
+    if len(closes) >= 36:
+        line = [a - b for a, b in zip(_ema(closes, 12), _ema(closes, 26))]
+        sig = _ema(line, 9)
+        h0, h1 = line[-1] - sig[-1], line[-2] - sig[-2]
+        add(10 if h0 > 0 else -10, "MACD 상승 흐름" if h0 > 0 else "MACD 하락 흐름",
+            f"MACD가 신호선보다 {'위' if h0 > 0 else '아래'}에 있어 {'오르는' if h0 > 0 else '내리는'} 쪽 힘이 우세해요.")
+        if abs(h0 - h1) > abs(h0) * 0.02:
+            add(5 if h0 > h1 else -5, "모멘텀 강해짐" if h0 > h1 else "모멘텀 약해짐",
+                f"MACD와 신호선의 차이가 어제보다 {'커졌어요(위쪽으로)' if h0 > h1 else '줄었어요(아래쪽으로)'}. "
+                f"{'오르는 속도가 붙고' if h0 > h1 else '오르는 힘이 빠지고'} 있다는 뜻이에요.")
+    rsi = ind.get("rsi")
+    if rsi is not None:
+        if rsi >= 75:
+            add(-15, "RSI 과열", f"RSI {rsi:.0f}: 단기간 많이 올라 하루 이틀 쉬어 가는(되돌림) 경우가 많은 구간이에요.")
+        elif rsi >= 70:
+            add(-8, "RSI 과열 근접", f"RSI {rsi:.0f}: 과열권(70 이상)이라 상승 속도가 둔해지기 쉬워요.")
+        elif rsi <= 25:
+            add(15, "RSI 침체", f"RSI {rsi:.0f}: 많이 팔려 기술적 반등이 나오기 쉬운 구간이에요.")
+        elif rsi <= 30:
+            add(8, "RSI 침체 근접", f"RSI {rsi:.0f}: 침체권(30 이하)이라 하락 속도가 둔해지기 쉬워요.")
+    pct = e.get("pct")
+    if pct is not None and abs(pct) >= 3:
+        add(6 if pct > 0 else -6, "오늘 큰 상승" if pct > 0 else "오늘 큰 하락",
+            f"오늘 {pct:+.1f}% 움직였어요. 큰 움직임은 하루 이틀 더 이어지는 경우가 많아요.")
+    vol, vol20 = e.get("vol"), e.get("vol20")
+    if vol and vol20 and pct and vol / vol20 >= 1.8:
+        add(8 if pct > 0 else -8, "거래량 실린 상승" if pct > 0 else "거래량 실린 하락",
+            f"평소의 {vol / vol20:.1f}배 거래량과 함께 {'올라' if pct > 0 else '내려'} 그 방향에 힘이 실렸어요.")
+    since = time.time() - 48 * 3600
+    nws = [x for x in ctx.get("news", {}).get(code, []) if (x.get("time") or 0) >= since]
+    good = sum(1 for x in nws if x.get("level") == "good")
+    bad = sum(1 for x in nws if x.get("level") == "danger")
+    if good != bad:
+        add(_clip((good - bad) * 6, -18, 18), "뉴스 분위기", f"최근 이틀 뉴스 {len(nws)}건 중 호재 {good}건 · 주의 {bad}건이에요.")
+    dz = [x for x in ctx.get("dart", {}).get(code, []) if x.get("level") == "danger"]
+    gd = [x for x in ctx.get("dart", {}).get(code, []) if x.get("level") == "good"]
+    if dz:
+        add(-min(24, 12 * len(dz)), "주의 공시", f"최근 이틀 주의 공시 {len(dz)}건: " + _trim(dz[0].get("title", ""), 40))
+    if gd:
+        add(min(16, 8 * len(gd)), "호재 공시", f"최근 이틀 호재 공시 {len(gd)}건: " + _trim(gd[0].get("title", ""), 40))
+    kr, us = ctx.get("kr"), ctx.get("us")
+    if kind == "kr_stock":
+        if kr is not None:
+            add(_clip(kr * 3, -8, 8), "국내 시장 분위기", f"코스피·코스닥 평균 {kr:+.2f}%예요.")
+        if us is not None:
+            add(_clip(us * 2, -6, 6), "미국 증시", f"S&P 500·나스닥 평균 {us:+.2f}%예요. 다음 날 국내 장에 영향을 주곤 해요.")
+    elif us is not None:
+        add(_clip(us * 3, -8, 8), "미국 시장 분위기", f"S&P 500·나스닥 평균 {us:+.2f}%예요.")
+    total = int(_clip(sum(f["p"] for f in F), -100, 100))
+    label = ("상승 우세" if total >= 30 else "약한 상승" if total >= 10 else
+             "하락 우세" if total <= -30 else "약한 하락" if total <= -10 else "중립")
+    d = "up" if total >= 10 else "down" if total <= -10 else "flat"
+    same = sum(1 for f in F if (f["p"] > 0) == (total > 0)) if total else 0
+    F.sort(key=lambda f: -abs(f["p"]))
+    return {"score": total, "label": label, "dir": d, "agree": [same, len(F)], "factors": F}
+
+
+def outlook_ctx(indices, news, dart_items):
+    def avg(codes):
+        v = [x["pct"] for x in indices if x.get("symbol") in codes and x.get("pct") is not None]
+        return sum(v) / len(v) if v else None
+    since = datetime.now(KST) - timedelta(hours=48)
+    dart = {}
+    for x in dart_items or []:
+        try:
+            seen = datetime.fromisoformat(x.get("first_seen") or "")
+        except ValueError:
+            continue
+        if seen >= since:
+            dart.setdefault(x.get("stock_code"), []).append(x)
+    return {"kr": avg(("KOSPI", "KOSDAQ")), "us": avg((".INX", ".IXIC")), "news": news, "dart": dart}
+
+
+def track_outlooks(cache, stocks, targets, ts):
+    """장 마감 뒤 그날의 전망을 기록하고, 2거래일 뒤 종가로 맞았는지 채점해요."""
+    log = cache.setdefault("olog", [])
+    kinds = {t["code"]: t["kind"] for t in targets}
+    have = {(r["c"], r["d"]) for r in log}
+    for e in stocks:
+        ol, code = e.get("outlook"), e.get("code")
+        if not ol or e.get("missing") or code not in kinds:
+            continue
+        ses = session_window(kinds[code], ts)
+        if not ses or ts < ses[1] + 600:
+            continue
+        d = _kst_day(ses[0])
+        if (code, d) not in have:
+            log.append({"c": code, "d": d, "s": ol["score"]})
+            have.add((code, d))
+    for r in log:
+        if "r" in r or r["c"] not in kinds:
+            continue
+        key = kinds[r["c"]] + ":" + r["c"]
+        h = cache.get("h", {}).get(key)
+        if not h:
+            continue
+        days, closes = merged_closes(h, dict(cache.get("q", {}).get(key) or {}, kind=kinds[r["c"]]))
+        if r["d"] in days:
+            i = days.index(r["d"])
+            if i + 2 < len(days) and closes[i]:
+                r["r"] = round(closes[i + 2] / closes[i] - 1, 4)
+    del log[:-3000]
+    stats, per = {"all": [0, 0]}, {}
+    for r in reversed(log):
+        if "r" not in r or abs(r["s"]) < 10:
+            continue
+        hit = int((r["s"] > 0) == (r["r"] > 0))
+        a = per.setdefault(r["c"], [0, 0])
+        if a[1] < 60:
+            a[0] += hit
+            a[1] += 1
+        if stats["all"][1] < 300:
+            stats["all"][0] += hit
+            stats["all"][1] += 1
+    stats.update(per)
+    stats["pending"] = sum(1 for r in log if "r" not in r)
+    return stats
+
+
+def market_entry(tgt, cache, ts, ctx=None):
     key = tgt["kind"] + ":" + tgt["code"]
     e = {k: tgt[k] for k in ("name", "group", "held") if tgt.get(k) not in (None, "")}
     e["symbol"] = tgt["code"]
@@ -1058,6 +1209,8 @@ def market_entry(tgt, cache, ts):
         hi = [x for x in (h.get("hi52"), q.get("high"), q.get("price")) if x is not None]
         lo = [x for x in (h.get("lo52"), q.get("low"), q.get("price")) if x is not None]
         e["hi52"], e["lo52"], e["vol20"] = r(max(hi)), r(min(lo)), h.get("vol20")
+        if ctx is not None and tgt["kind"] in ("kr_stock", "us_stock"):
+            e["outlook"] = outlook(e, closes, tgt["kind"], ctx)
         cut = max(0, len(days) - 63)
         sel = list(range(0, cut, 3)) + list(range(cut, len(days)))
         if sel:
@@ -1417,19 +1570,23 @@ class Radar:
         else:
             self.next["market"] = ts + (float(m["open_seconds"]) if busy else float(m["closed_minutes"]) * 60)
 
-        mtext = dumps(cache)
-        if mtext != self.saved_mcache_text and not self.args.dry_run:
-            save_text(MARKET_CACHE_PATH, mtext)
-        self.saved_mcache_text = mtext
-
         stamps = [q.get("at", 0) for q in cache["q"].values()]
+        idx_entries = [market_entry(x, cache, ts) for x in targets if x["kind"] not in ("kr_stock", "us_stock")]
+        dart_items = (load_json(DATA_PATH, {}) or {}).get("dart", [])
+        ctx = outlook_ctx(idx_entries, news, dart_items)
+        stk_entries = [market_entry(x, cache, ts, ctx) for x in targets if x["kind"] in ("kr_stock", "us_stock")]
         payload = {"updated_at": datetime.fromtimestamp(max(stamps), KST).isoformat(timespec="seconds") if stamps else "",
                    "source": "네이버 증권",
                    "news": {code: items for code, items in news.items()
                             if any(t["code"] == code and t.get("type") in ntypes for t in targets)},
-                   "indices": [market_entry(x, cache, ts) for x in targets if x["kind"] not in ("kr_stock", "us_stock")],
-                   "stocks": [market_entry(x, cache, ts) for x in targets if x["kind"] in ("kr_stock", "us_stock")]}
-        self.market_text = dumps(payload)
+                   "indices": idx_entries, "stocks": stk_entries,
+                   "outlook_stats": track_outlooks(cache, stk_entries, targets, ts)}
+        self.market_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))  # 자주 올리니 공백 없이
+
+        mtext = json.dumps(cache, ensure_ascii=False, separators=(",", ":"))
+        if mtext != self.saved_mcache_text and not self.args.dry_run:
+            save_text(MARKET_CACHE_PATH, mtext)
+        self.saved_mcache_text = mtext
 
         if self.market_upload_err:
             return update_status(self.state, "market", False, "시세 업로드 실패: " + self.market_upload_err, alerts)

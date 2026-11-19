@@ -49,7 +49,8 @@
    {"name": "존슨앤드존슨", "stock_code": "JNJ", "type": "us", "held": true},
    {"name": "프록터앤드갬블", "stock_code": "PG", "type": "us", "held": true},
    {"name": "코카콜라", "stock_code": "KO", "type": "us", "held": true},
-   {"name": "한화에어로스페이스", "stock_code": "012450", "held": false}
+   {"name": "한화에어로스페이스", "stock_code": "012450", "held": false},
+   {"name": "스페이스X", "stock_code": "SPCX", "type": "us", "held": false}
   ],
   "danger_keywords": [
    "유상증자", "전환사채", "신주인수권부사채", "교환사채", "감자결정",

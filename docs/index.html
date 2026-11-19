@@ -215,6 +215,20 @@
     font-size: 13px; line-height: 1.6; color: var(--ink); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); display: none; pointer-events: none; }
   #tipbox .th { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; font-weight: 700; }
   #tipbox .tf { margin-top: 7px; font-size: 11.5px; color: var(--ink-3); }
+  #tipbox .tb { white-space: pre-line; }
+  .olk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; cursor: help;
+    background: var(--bg-2); border: 1px solid var(--line); font-size: 12.5px; }
+  .olk .lbl { color: var(--ink-3); font-weight: 600; }
+  .olk b { font-size: 13.5px; font-weight: 800; }
+  .olk .sc { color: var(--ink-3); margin-left: auto; font-size: 12px; white-space: nowrap; }
+  .olk.up { border-color: rgba(255, 91, 104, .38); background: rgba(255, 91, 104, .07); } .olk.up b { color: var(--up); }
+  .olk.down { border-color: rgba(61, 149, 255, .4); background: rgba(61, 149, 255, .08); } .olk.down b { color: var(--down); }
+  .olk.flat b { color: var(--ink-2); }
+  .olf { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .olf li { display: grid; grid-template-columns: 46px 1fr; gap: 10px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+  .olf .pt { font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+  .olf .t { color: var(--ink); font-weight: 650; margin-right: 6px; }
+  .olrec { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
   .tag.news { background: rgba(110, 168, 255, .14); color: var(--accent-2); }
   .c-wait { color: var(--ink-3); font-size: 13px; padding: 14px 0; text-align: center; border: 1px dashed var(--line); border-radius: var(--r); }
 
@@ -256,6 +270,11 @@
     .card .c-code, .card .c-stats, .card .c-tags, .card .sigs, .card .r52c, .card .c-news, .card .meter > span:first-child { display: none; }
     #tipbox { max-width: calc(100vw - 24px); }
     .card .sigcount { display: flex; }
+    .card .c-top .tag:not(.held):not(.unheld) { display: none; }
+    .card .c-name { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
+    .olk { padding: 7px 8px; gap: 4px 6px; }
+    .olk .lbl { width: 100%; font-size: 11.5px; }
+    .olk .sc { margin-left: 0; }
     .card .meter { grid-template-columns: 1fr auto; gap: 7px; font-size: 11.5px; }
     .card .meter .val { min-width: 0; }
     .c-name { font-size: 14px; }
@@ -807,6 +826,9 @@
         "<div><dt>60일선</dt><dd class=\"num\">" + fmt(ind.ma60, d) + "</dd></div>" +
         "<div><dt>거래량 (20일 평균)</dt><dd class=\"num\">" + bigCount(e.vol) + ' <span style="color:var(--ink-3);font-weight:500">(' + bigCount(e.vol20) + ")</span></dd></div>" +
         (ind.score != null ? '<div class="wide">' + meterHTML(ind.score) + "</div>" : "") +
+        (e.outlook ? '<div class="wide"><dt>1~2일 전망</dt><dd>' + outlookHTML(e) + '<ul class="olf">' + e.outlook.factors.map(function (f) {
+          return '<li><span class="pt ' + (f.p > 0 ? "up" : "down") + '">' + (f.p > 0 ? "+" : "") + f.p + '</span><span><span class="t">' + esc(f.t) + "</span>" + esc(f.why) + "</span></li>";
+        }).join("") + '</ul><div class="olrec">' + esc(olRecord(e.code)) + "</div></dd></div>" : "") +
         (sl.length ? '<div class="wide"><dt style="display:flex;gap:8px">신호와 이유<span class="sig-legend">▲ 긍정 · ▼ 부정 · ! 주의 · ◎ 관심</span></dt><dd><ul class="siglist">' +
           sl.map(function (x) { return "<li>" + sigChip(x, true) + "<span>" + esc(x.why) + "</span></li>"; }).join("") + "</ul></dd></div>" : "");
     }
@@ -839,6 +861,14 @@
     var nm = (MARKET && MARKET.news) || {}, nN = 0, nD = 0, nG = 0, day = Date.now() / 1000 - 86400;
     Object.keys(nm).forEach(function (c) { (nm[c] || []).forEach(function (x) { if ((x.time || 0) >= day) { nN++; if (x.level === "danger") nD++; if (x.level === "good") nG++; } }); });
     if (Object.keys(nm).length) li.push(["뉴스", nN ? "미국 주식·ETF 최근 24시간 <b>" + nN + "건</b>" + (nD ? " · 주의 <b style=\"color:var(--warn)\">" + nD + "</b>" : "") + (nG ? " · 호재 <b style=\"color:var(--good)\">" + nG + "</b>" : "") : "최근 24시간 새 뉴스는 없어요"]);
+    var ols = ((MARKET && MARKET.stocks) || []).filter(function (x) { return x.outlook && x.held !== false; });
+    if (ols.length) {
+      var ou = ols.filter(function (x) { return x.outlook.dir === "up"; }), od = ols.filter(function (x) { return x.outlook.dir === "down"; });
+      var best = ols.slice().sort(function (a, b) { return b.outlook.score - a.outlook.score; });
+      li.push(["전망", "보유 1~2일: <b class=\"up\">상승 쪽 " + ou.length + "</b> · <b class=\"down\">하락 쪽 " + od.length + "</b> · 중립 " + (ols.length - ou.length - od.length) +
+        (best[0].outlook.score >= 10 ? "<br>가장 강한 종목 " + esc(best[0].name) + ' <span class="up">+' + best[0].outlook.score + "</span>" : "") +
+        (best[best.length - 1].outlook.score <= -10 ? "<br>가장 약한 종목 " + esc(best[best.length - 1].name) + ' <span class="down">' + best[best.length - 1].outlook.score + "</span>" : "")]);
+    }
     var hot = [], cold = [];
     ((MARKET && MARKET.stocks) || []).forEach(function (s) { var r = s.ind && s.ind.rsi; if (r >= 70) hot.push(s.name); else if (r != null && r <= 30) cold.push(s.name); });
     if (hot.length || cold.length) li.push(["지표", (hot.length ? "RSI 과열권: " + esc(hot.join(", ")) : "") + (hot.length && cold.length ? "<br>" : "") + (cold.length ? "RSI 침체권: " + esc(cold.join(", ")) : "")]);
@@ -928,6 +958,29 @@
     var kk = SIG_KIND[sg.k] || SIG_KIND.neu;
     return '<span class="sig ' + sg.k + '"' + (plain ? "" : ' tabindex="0" data-tip="' + esc(JSON.stringify({ k: sg.k, t: sg.t, why: sg.why })) + '"') + "><b>" + kk[0] + "</b>" + esc(sg.t) + "</span>";
   }
+  // ---------- 1~2일 전망 (봇이 신호·뉴스·공시·시장 분위기를 합친 점수)
+  var OL_KIND = { up: "pos", down: "neg", flat: "neu" };
+  function olRecord(code) {
+    var st = (MARKET && MARKET.outlook_stats) || {}, me = st[code], all = st.all;
+    function pc(a) { return Math.round(a[0] / a[1] * 100) + "%"; }
+    var parts = [];
+    if (me && me[1] >= 5) parts.push("이 종목은 지난 " + me[1] + "번 중 " + me[0] + "번 맞았어요 (" + pc(me) + ")");
+    if (all && all[1] >= 5) parts.push("전체 " + all[1] + "번 중 " + all[0] + "번 (" + pc(all) + ")");
+    if (!parts.length) return "적중 기록을 쌓는 중이에요" + (st.pending ? " (채점 대기 " + st.pending + "건)" : "") + ". 장 마감마다 전망을 기록하고 2거래일 뒤 종가로 맞았는지 채점해요.";
+    return "적중 기록: " + parts.join(" · ") + ". 2거래일 뒤 종가 기준, 중립 제외.";
+  }
+  function olFactorsText(ol) {
+    return ol.factors.map(function (f) { return (f.p > 0 ? "+" : "") + f.p + "  " + f.t + ": " + f.why; }).join("\n");
+  }
+  function outlookHTML(m) {
+    var ol = m.outlook;
+    if (!ol) return "";
+    var arrow = ol.dir === "up" ? "▲ " : ol.dir === "down" ? "▼ " : "― ";
+    var tip = esc(JSON.stringify({ k: OL_KIND[ol.dir], kl: "1~2일 전망", t: ol.label + " " + (ol.score > 0 ? "+" : "") + ol.score,
+      why: olFactorsText(ol), foot: olRecord(m.code) }));
+    return '<div class="olk ' + ol.dir + '" tabindex="0" data-tip="' + tip + '"><span class="lbl">1~2일 전망</span><b>' + arrow + esc(ol.label) + "</b>" +
+      '<span class="sc num">' + (ol.score > 0 ? "+" : "") + ol.score + " · 근거 " + ol.agree[0] + "/" + ol.agree[1] + "</span></div>";
+  }
   function sigsHTML(m) {
     var list = signals(m);
     return list.length ? '<div class="sigs">' + list.map(function (x) { return sigChip(x); }).join("") + "</div>" : "";
@@ -939,8 +992,8 @@
   function showTip(el) {
     var d; try { d = JSON.parse(el.getAttribute("data-tip")); } catch (e) { return; }
     var kk = SIG_KIND[d.k] || SIG_KIND.neu;
-    tipbox.innerHTML = '<div class="th">' + (d.k ? '<span class="sig ' + d.k + '"><b>' + kk[0] + "</b>" + kk[1] + "</span>" : "") + esc(d.t) + "</div>" + esc(d.why) +
-      '<div class="tf">참고용 지표예요. 매수·매도 권유가 아니에요.</div>';
+    tipbox.innerHTML = '<div class="th">' + (d.k ? '<span class="sig ' + d.k + '"><b>' + kk[0] + "</b>" + (d.kl || kk[1]) + "</span>" : "") + esc(d.t) + "</div>" +
+      '<div class="tb">' + esc(d.why) + "</div>" + (d.foot ? '<div class="tf">' + esc(d.foot) + "</div>" : "");
     tipbox.style.display = "block";
     var r = el.getBoundingClientRect(), tw = tipbox.offsetWidth, th = tipbox.offsetHeight;
     var x = Math.max(12, Math.min(window.innerWidth - tw - 12, r.left + r.width / 2 - tw / 2));
@@ -1021,6 +1074,7 @@
         var scnt = signals(m), cp = scnt.filter(function (x) { return x.k === "pos"; }).length, cn = scnt.filter(function (x) { return x.k === "neg"; }).length,
           cw = scnt.filter(function (x) { return x.k === "warn" || x.k === "watch"; }).length;
         h += '<div class="sigcount" title="긍정 · 부정 · 주의/관심 신호 개수"><span class="up">▲' + cp + '</span><span class="down">▼' + cn + "</span>" + (cw ? '<span style="color:var(--warn)">!' + cw + "</span>" : "") + "</div>";
+        h += outlookHTML(m);
       } else {
         h += '<div class="c-wait">' + (MARKET ? "이 종목 시세를 아직 받지 못했어요" : "시세 준비 중") + "</div>";
       }
