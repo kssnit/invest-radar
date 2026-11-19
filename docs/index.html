@@ -49,6 +49,8 @@
   .btn { font-size: 13px; font-weight: 600; padding: 7px 13px; border-radius: 999px; background: var(--navy);
     border: 1px solid var(--line-2); color: var(--ink); }
   .btn:hover { background: #1d3b6d; }
+  .btn:disabled { opacity: .7; cursor: progress; }
+  #reload { min-width: 92px; }
 
   .notice { margin: 14px 0 0; padding: 10px 14px; border-radius: var(--r); font-size: 13px; line-height: 1.55;
     background: rgba(110, 168, 255, .1); border: 1px solid rgba(110, 168, 255, .3); color: var(--accent-2); }
@@ -333,7 +335,7 @@
 <script>
 (function () {
   "use strict";
-  var DATA = null, ALIVE = null, MARKET = null, MARKET_ERR = "";
+  var DATA = null, ALIVE = null, MARKET = null, MARKET_ERR = "", LOADED_AT = 0;
   var REFRESH_MS = 120000, PAGE = 30;
   var ui = { sel: "", range: "1d", hold: "", sort: "default", kind: "all", fhold: "", corp: "", limit: PAGE };
   try { var saved = JSON.parse(localStorage.getItem("radar-ui") || "{}"); ["sel", "range", "hold", "sort"].forEach(function (k) { if (saved[k]) ui[k] = saved[k]; }); } catch (e) { /* 저장소 없음 */ }
@@ -689,7 +691,8 @@
   function marketOf(group) { return group === "국내" ? "kr" : group === "미국" ? "us" : ""; }
 
   function renderSessions() {
-    $("msrc").textContent = MARKET && MARKET.updated_at ? "시세 " + hhmm(Date.parse(MARKET.updated_at)) + " 기준 · " + (MARKET.source || "네이버 증권") + " · 몇 분 늦을 수 있어요" : "";
+    $("msrc").textContent = (MARKET && MARKET.updated_at ? "시세 " + hhmm(Date.parse(MARKET.updated_at)) + " 기준 · " + (MARKET.source || "네이버 증권") + " · " : "") +
+      (LOADED_AT ? "화면 " + hhmm(LOADED_AT) + " 새로 불러옴" : "");
   }
 
   // ---------- 시세 보드
@@ -972,22 +975,40 @@
     if (window.__PREVIEW_DATA__) {
       DATA = window.__PREVIEW_DATA__; ALIVE = window.__PREVIEW_ALIVE__ || null; MARKET = window.__PREVIEW_MARKET__ || null;
       $("banner").innerHTML = window.__PREVIEW_NOTE__ ? '<div class="notice">' + window.__PREVIEW_NOTE__ + "</div>" : "";
+      LOADED_AT = Date.now();
       renderAll();
-      return;
+      return Promise.resolve(true);
     }
     var aliveReq = getJSON("alive.json").catch(function () { return null; });
-    getJSON("data.json")
+    return getJSON("data.json")
       .then(function (d) {
         DATA = d;
         var mu = marketUrl();
         var mReq = mu ? getJSON(mu).then(function (m) { MARKET = m; MARKET_ERR = ""; }, function (e) { MARKET_ERR = e.message || "실패"; }) : Promise.resolve(MARKET_ERR = "주소 없음");
         return Promise.all([aliveReq.then(function (a) { ALIVE = a; }), mReq]);
       })
-      .then(function () { $("err").innerHTML = ""; renderAll(); })
+      .then(function () { $("err").innerHTML = ""; LOADED_AT = Date.now(); renderAll(); return true; })
       .catch(function (e) {
         $("err").innerHTML = '<div class="notice bad">data.json 을 불러오지 못했어요 (' + esc(e.message) + ").<br>GitHub Pages 주소로 열었는지, 봇이 한 번 이상 실행됐는지 확인하세요.</div>";
         $("updated").textContent = "불러오기 실패";
+        return false;
       });
+  }
+  // 새로고침 버튼: 누르면 바로 보이게 (불러오는 중 → 몇 시 몇 분 갱신)
+  var btnTimer = 0;
+  function manualReload() {
+    var b = $("reload");
+    if (b.disabled) return;
+    b.disabled = true; b.textContent = "불러오는 중…";
+    var t0 = Date.now();
+    load().then(function (ok) {
+      setTimeout(function () {   // 너무 빨리 끝나도 바뀐 걸 볼 수 있게 잠깐 보여줘요
+        b.disabled = false;
+        b.textContent = ok ? "✓ " + hhmm(Date.now()) + " 갱신" : "다시 시도";
+        clearTimeout(btnTimer);
+        btnTimer = setTimeout(function () { b.textContent = "새로고침"; }, 4000);
+      }, Math.max(0, 500 - (Date.now() - t0)));
+    });
   }
 
   // ---------- 조작
@@ -1016,7 +1037,7 @@
     if ((ev.key === "Enter" || ev.key === " ") && ev.target.classList && ev.target.classList.contains("card")) { ev.preventDefault(); pick(ev.target.getAttribute("data-sym")); }
   });
   $("more").addEventListener("click", function () { ui.limit += PAGE; renderFeed(); });
-  $("reload").addEventListener("click", load);
+  $("reload").addEventListener("click", manualReload);
   if (window.ResizeObserver) {
     var lastW = 0, raf = 0;
     new ResizeObserver(function (ents) {
