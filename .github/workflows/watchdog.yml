@@ -1,0 +1,36 @@
+name: 휴대폰 봇 감시
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"   # 30분마다 (정각을 피해 지연을 줄임)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 휴대폰 생존 신호 확인
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python3 watchdog.py
+
+      - name: 감시 상태 저장
+        run: |
+          if [ -n "$(git status --porcelain state)" ]; then
+            git config user.name "invest-radar-watchdog"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state
+            git commit -m "감시 상태 갱신"
+            git pull --rebase --autostash
+            git push
+          fi
