@@ -194,6 +194,27 @@
     border-top: 1px solid var(--line); padding-top: 10px; min-width: 0; }
   .c-news span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
   .c-news:hover .t { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+  /* 신호 칩: ▲ 긍정 · ▼ 부정 · ! 주의 · ◎ 관심 · ― 중립 */
+  .sigs { display: flex; flex-wrap: wrap; gap: 5px; }
+  .sig { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 650; padding: 3px 8px 3px 6px; border-radius: 7px;
+    border: 1px solid transparent; cursor: help; white-space: nowrap; line-height: 1.35; }
+  .sig b { font-size: 10px; width: 14px; height: 14px; border-radius: 4px; display: inline-grid; place-items: center; color: #0a1222; font-weight: 900; }
+  .sig.pos { background: rgba(255, 91, 104, .12); border-color: rgba(255, 91, 104, .32); color: #ff9aa2; } .sig.pos b { background: var(--up); }
+  .sig.neg { background: rgba(61, 149, 255, .12); border-color: rgba(61, 149, 255, .34); color: #8cc0ff; } .sig.neg b { background: var(--down); }
+  .sig.warn { background: rgba(242, 169, 59, .12); border-color: rgba(242, 169, 59, .34); color: #f6c071; } .sig.warn b { background: var(--warn); }
+  .sig.watch { background: rgba(52, 199, 123, .12); border-color: rgba(52, 199, 123, .32); color: #7fe0ad; } .sig.watch b { background: var(--good); }
+  .sig.neu { background: var(--bg-2); border-color: var(--line); color: var(--ink-2); } .sig.neu b { background: var(--ink-3); }
+  .sig:hover, .sig:focus-visible { filter: brightness(1.15); }
+  .meter[data-tip] { cursor: help; }
+  .sig-legend { font-size: 11.5px; color: var(--ink-3); margin-left: auto; }
+  .siglist { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .siglist li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+  .siglist .sig { cursor: default; }
+  #tipbox { position: fixed; z-index: 50; max-width: 330px; background: #08101f; border: 1px solid var(--line-2); border-radius: 12px; padding: 11px 13px;
+    font-size: 13px; line-height: 1.6; color: var(--ink); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); display: none; pointer-events: none; }
+  #tipbox .th { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; font-weight: 700; }
+  #tipbox .tf { margin-top: 7px; font-size: 11.5px; color: var(--ink-3); }
+  .tag.news { background: rgba(110, 168, 255, .14); color: var(--accent-2); }
   .c-wait { color: var(--ink-3); font-size: 13px; padding: 14px 0; text-align: center; border: 1px dashed var(--line); border-radius: var(--r); }
 
   /* 소식 */
@@ -231,7 +252,8 @@
     .top-in { position: relative; }
     .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .card { padding: 12px; gap: 7px; border-radius: 14px; }
-    .card .c-code, .card .c-stats, .card .c-tags, .card .r52c, .card .c-news, .card .meter > span:first-child { display: none; }
+    .card .c-code, .card .c-stats, .card .c-tags, .card .sigs, .card .r52c, .card .c-news, .card .meter > span:first-child { display: none; }
+    #tipbox { max-width: calc(100vw - 24px); }
     .card .meter { grid-template-columns: 1fr auto; gap: 7px; font-size: 11.5px; }
     .card .meter .val { min-width: 0; }
     .c-name { font-size: 14px; }
@@ -673,7 +695,8 @@
   function phaseNow(market, e) {
     var now = Date.now(), ph = market === "us" ? usPhase(now) : krPhase(now);
     // 정규장 시간인데 지수가 40분 넘게 안 움직였으면 휴장으로 봐요 (임시 휴장 대비)
-    if (ph === "regular" && e && e.time && e.ses && now / 1000 - e.ses[0] > 1200 && now / 1000 - e.time > 2400) ph = "holiday";
+    var fresh = MARKET && MARKET.updated_at && now - Date.parse(MARKET.updated_at) < 15 * 60000;   // 시세 파일이 최신일 때만 판단
+    if (ph === "regular" && fresh && e && e.time && e.ses && now / 1000 - e.ses[0] > 1200 && now / 1000 - e.time > 2400) ph = "holiday";
     return ph;
   }
   function nextChange(market) {
@@ -775,13 +798,14 @@
         '<div class="r52"><dt>' + rangeLabel(e) + " 범위 · 전일 종가 " + fmt(e.prev, d) + '</dt><dd><div class="rbar"><i style="left:' + pos.toFixed(1) + '%"></i></div>' +
         '<div class="rlab num"><span>' + fmt(e.lo52, d) + "</span><span>" + fmt(e.hi52, d) + "</span></div></dd></div>");
     if (e.code && e.ind) {
-      var ind = e.ind, tags = stockTags(e);
+      var ind = e.ind, sl = signals(e);
       $("facts").innerHTML += "<div><dt>RSI(14)</dt><dd class=\"num\">" + fmt(ind.rsi, 1) + "</dd></div>" +
         "<div><dt>20일선</dt><dd class=\"num\">" + fmt(ind.ma20, d) + "</dd></div>" +
         "<div><dt>60일선</dt><dd class=\"num\">" + fmt(ind.ma60, d) + "</dd></div>" +
         "<div><dt>거래량 (20일 평균)</dt><dd class=\"num\">" + bigCount(e.vol) + ' <span style="color:var(--ink-3);font-weight:500">(' + bigCount(e.vol20) + ")</span></dd></div>" +
         (ind.score != null ? '<div class="wide">' + meterHTML(ind.score) + "</div>" : "") +
-        (tags.length ? '<div class="wide c-tags">' + tags.map(function (t) { return "<span>" + esc(t) + "</span>"; }).join("") + "</div>" : "");
+        (sl.length ? '<div class="wide"><dt style="display:flex;gap:8px">신호와 이유<span class="sig-legend">▲ 긍정 · ▼ 부정 · ! 주의 · ◎ 관심</span></dt><dd><ul class="siglist">' +
+          sl.map(function (x) { return "<li>" + sigChip(x, true) + "<span>" + esc(x.why) + "</span></li>"; }).join("") + "</ul></dd></div>" : "");
     }
   }
 
@@ -809,6 +833,9 @@
     var fresh = ((DATA && DATA.dart) || []).filter(function (x) { return (x.first_seen || "").slice(0, 10) === today; });
     var dz = fresh.filter(function (x) { return x.level === "danger"; }).length, gd = fresh.filter(function (x) { return x.level === "good"; }).length;
     li.push(["공시", fresh.length ? "오늘 새 공시 <b>" + fresh.length + "건</b>" + (dz ? " · 주의 <b style=\"color:var(--warn)\">" + dz + "</b>" : "") + (gd ? " · 호재 <b style=\"color:var(--good)\">" + gd + "</b>" : "") : "오늘 새로 뜬 공시는 없어요"]);
+    var nm = (MARKET && MARKET.news) || {}, nN = 0, nD = 0, nG = 0, day = Date.now() / 1000 - 86400;
+    Object.keys(nm).forEach(function (c) { (nm[c] || []).forEach(function (x) { if ((x.time || 0) >= day) { nN++; if (x.level === "danger") nD++; if (x.level === "good") nG++; } }); });
+    if (Object.keys(nm).length) li.push(["뉴스", nN ? "미국 주식·ETF 최근 24시간 <b>" + nN + "건</b>" + (nD ? " · 주의 <b style=\"color:var(--warn)\">" + nD + "</b>" : "") + (nG ? " · 호재 <b style=\"color:var(--good)\">" + nG + "</b>" : "") : "최근 24시간 새 뉴스는 없어요"]);
     var hot = [], cold = [];
     ((MARKET && MARKET.stocks) || []).forEach(function (s) { var r = s.ind && s.ind.rsi; if (r >= 70) hot.push(s.name); else if (r != null && r <= 30) cold.push(s.name); });
     if (hot.length || cold.length) li.push(["지표", (hot.length ? "RSI 과열권: " + esc(hot.join(", ")) : "") + (hot.length && cold.length ? "<br>" : "") + (cold.length ? "RSI 침체권: " + esc(cold.join(", ")) : "")]);
@@ -855,19 +882,84 @@
       return '<button type="button" data-sort="' + s[0] + '" aria-pressed="' + (ui.sort === s[0]) + '">' + s[1] + "</button>";
     }).join("");
   }
-  function stockTags(m) {
-    var tags = ((m.ind && m.ind.tags) || []).slice();
-    if (m.vol && m.vol20 && m.vol / m.vol20 >= 1.8) tags.push("거래량 평소의 " + fmt(m.vol / m.vol20, 1) + "배");
-    return tags;
+  // ---------- 신호: 숫자를 보고 왜 그런지 설명까지 만들어요 (참고용 지표, 매매 권유 아님)
+  var SIG_KIND = { pos: ["▲", "긍정 신호"], neg: ["▼", "부정 신호"], warn: ["!", "주의 신호"], watch: ["◎", "관심 신호"], neu: ["―", "중립"] };
+  function pctGap(a, b) { return fmt(Math.abs((a - b) / b * 100), 1) + "%"; }
+  function signals(m) {
+    var ind = m.ind || {}, p = m.price, out = [];
+    function P(v) { return fmtP(m, v); }
+    if (ind.ma20 && p != null) {
+      out.push(p >= ind.ma20
+        ? { k: "pos", t: "20일선 위", why: "현재가 " + P(p) + "가 최근 20거래일 평균 가격 " + P(ind.ma20) + "보다 " + pctGap(p, ind.ma20) + " 높아요. 한 달쯤의 평균보다 비싸게 거래된다는 건 요즘 흐름이 위쪽이라는 뜻이라 단기 상승 추세 신호로 봐요." }
+        : { k: "neg", t: "20일선 아래", why: "현재가 " + P(p) + "가 최근 20거래일 평균 가격 " + P(ind.ma20) + "보다 " + pctGap(p, ind.ma20) + " 낮아요. 한 달쯤의 평균보다 싸게 거래된다는 건 요즘 흐름이 약하다는 뜻이라 단기 하락 추세 신호로 봐요." });
+    }
+    if (ind.ma5 && ind.ma20 && ind.ma60) {
+      var line = "5일선 " + P(ind.ma5) + ", 20일선 " + P(ind.ma20) + ", 60일선 " + P(ind.ma60);
+      if (ind.ma5 > ind.ma20 && ind.ma20 > ind.ma60) out.push({ k: "pos", t: "정배열", why: line + " 순서로 짧은 기간 평균일수록 위에 있어요(5일 > 20일 > 60일). 최근 가격이 점점 높아져 왔다는 뜻이라 상승 추세가 이어지는 모양으로 봐요." });
+      else if (ind.ma5 < ind.ma20 && ind.ma20 < ind.ma60) out.push({ k: "neg", t: "역배열", why: line + " 순서로 짧은 기간 평균일수록 아래에 있어요(5일 < 20일 < 60일). 최근 가격이 점점 낮아져 왔다는 뜻이라 하락 추세가 이어지는 모양으로 봐요." });
+      else out.push({ k: "neu", t: "이평선 엇갈림", why: line + "로 순서가 섞여 있어요. 짧은 추세와 긴 추세가 다른 방향이라 뚜렷한 방향이 아직 없는 상태예요." });
+    }
+    if (ind.macd_hist != null && ind.macd != null && ind.macd_sig != null) {
+      var up = ind.macd_hist > 0, dd = Math.abs(ind.macd) >= 100 ? 0 : 2;
+      out.push({ k: up ? "pos" : "neg", t: up ? "MACD 상승 흐름" : "MACD 하락 흐름",
+        why: "MACD(12일 평균과 26일 평균의 차이) " + fmt(ind.macd, dd) + "가 그 9일 평균인 신호선 " + fmt(ind.macd_sig, dd) + "보다 " + (up ? "높아요" : "낮아요") + ". " +
+          (up ? "최근 가격이 오르는 속도가 붙고 있다는 뜻이라 상승 흐름 신호로 봐요." : "오르는 힘이 약해지거나 내리는 속도가 붙고 있다는 뜻이라 하락 흐름 신호로 봐요.") });
+    }
+    if (ind.rsi != null) {
+      if (ind.rsi >= 70) out.push({ k: "warn", t: "RSI 과열권", why: "RSI " + fmt(ind.rsi, 1) + ": 최근 14거래일 동안 오른 폭이 내린 폭보다 훨씬 커서 70을 넘었어요. 짧은 기간에 많이 올라 숨 고르기(조정)가 나올 수 있는 구간이라, 따라 사기 전에 주의하라는 신호예요." });
+      else if (ind.rsi <= 30) out.push({ k: "watch", t: "RSI 침체권", why: "RSI " + fmt(ind.rsi, 1) + ": 최근 14거래일 동안 내린 폭이 오른 폭보다 훨씬 커서 30 아래예요. 많이 팔린 상태라 반등이 나올 수 있는 구간이지만, 하락 추세가 더 이어질 수도 있어 다른 신호와 함께 봐야 해요." });
+    }
+    if (m.vol && m.vol20 && m.vol / m.vol20 >= 1.8) {
+      out.push({ k: "warn", t: "거래량 급증", why: "오늘 거래량 " + bigCount(m.vol) + "주가 최근 20일 평균 " + bigCount(m.vol20) + "주의 " + fmt(m.vol / m.vol20, 1) + "배예요. 관심이 크게 몰렸다는 뜻이라 가격이 어느 쪽으로든 크게 움직일 수 있어요." });
+    }
+    if (m.hi52 && m.lo52 && m.hi52 > m.lo52 && p != null) {
+      var rl = rangeLabel(m);
+      if (p >= m.hi52 * 0.98) out.push({ k: "pos", t: rl + " 고점 근처", why: "현재가 " + P(p) + "가 " + rl + " 최고가 " + P(m.hi52) + "에 2% 이내로 붙어 있어요. 사는 힘이 강하다는 뜻이지만, 고점에서는 차익 실현 매물도 나오기 쉬워요." });
+      else if (p <= m.lo52 * 1.02) out.push({ k: "neg", t: rl + " 저점 근처", why: "현재가 " + P(p) + "가 " + rl + " 최저가 " + P(m.lo52) + "에 2% 이내로 붙어 있어요. 파는 힘이 강한 구간이라 바닥을 확인하기 전까지는 조심하는 게 보통이에요." });
+    }
+    return out;
   }
+  function sigChip(sg, plain) {
+    var kk = SIG_KIND[sg.k] || SIG_KIND.neu;
+    return '<span class="sig ' + sg.k + '"' + (plain ? "" : ' tabindex="0" data-tip="' + esc(JSON.stringify({ k: sg.k, t: sg.t, why: sg.why })) + '"') + "><b>" + kk[0] + "</b>" + esc(sg.t) + "</span>";
+  }
+  function sigsHTML(m) {
+    var list = signals(m);
+    return list.length ? '<div class="sigs">' + list.map(function (x) { return sigChip(x); }).join("") + "</div>" : "";
+  }
+  // 말풍선 설명 (마우스를 올리거나, 휴대폰에서는 눌러서)
+  var tipbox = document.createElement("div");
+  tipbox.id = "tipbox"; tipbox.setAttribute("role", "tooltip"); document.body.appendChild(tipbox);
+  var tipFor = null;
+  function showTip(el) {
+    var d; try { d = JSON.parse(el.getAttribute("data-tip")); } catch (e) { return; }
+    var kk = SIG_KIND[d.k] || SIG_KIND.neu;
+    tipbox.innerHTML = '<div class="th">' + (d.k ? '<span class="sig ' + d.k + '"><b>' + kk[0] + "</b>" + kk[1] + "</span>" : "") + esc(d.t) + "</div>" + esc(d.why) +
+      '<div class="tf">참고용 지표예요. 매수·매도 권유가 아니에요.</div>';
+    tipbox.style.display = "block";
+    var r = el.getBoundingClientRect(), tw = tipbox.offsetWidth, th = tipbox.offsetHeight;
+    var x = Math.max(12, Math.min(window.innerWidth - tw - 12, r.left + r.width / 2 - tw / 2));
+    var y = r.top - th - 10 < 8 ? r.bottom + 10 : r.top - th - 10;
+    tipbox.style.left = x + "px"; tipbox.style.top = y + "px";
+    tipFor = el;
+  }
+  function hideTip() { tipbox.style.display = "none"; tipFor = null; }
+  document.addEventListener("mouseover", function (ev) { var el = ev.target.closest && ev.target.closest("[data-tip]"); if (el && el !== tipFor) showTip(el); });
+  document.addEventListener("mouseout", function (ev) { var el = ev.target.closest && ev.target.closest("[data-tip]"); if (el && !el.contains(ev.relatedTarget)) hideTip(); });
+  document.addEventListener("focusin", function (ev) { if (ev.target.hasAttribute && ev.target.hasAttribute("data-tip")) showTip(ev.target); });
+  document.addEventListener("focusout", hideTip);
+  window.addEventListener("scroll", hideTip, { passive: true });
   function meterHTML(score) {
     if (score == null) return "";
     var d = score >= 25 ? "up" : score <= -25 ? "down" : "flat";
     var word = d === "up" ? "강세" : d === "down" ? "약세" : "중립";
     var w = Math.abs(score) / 2, left = score >= 0 ? 50 : 50 - w;
-    return '<div class="meter" title="20일선·60일선·MACD·RSI를 묶은 참고 지표예요"><span>기술 흐름</span><div class="bar"><i style="left:' + left + "%;width:" + w + "%;background:var(--" + (d === "flat" ? "flat" : d) + ')"></i></div>' +
+    var tip = esc(JSON.stringify({ t: "기술 흐름 " + word + " " + (score > 0 ? "+" : "") + score,
+      why: "20일선 위·아래, 20일선과 60일선의 위치, MACD 흐름, RSI 네 가지를 각각 +/-로 매겨 -100~+100으로 합친 점수예요. +25 이상이면 강세, -25 이하면 약세, 그 사이는 중립으로 표시해요." }));
+    return '<div class="meter" data-tip="' + tip + '"><span>기술 흐름</span><div class="bar"><i style="left:' + left + "%;width:" + w + "%;background:var(--" + (d === "flat" ? "flat" : d) + ')"></i></div>' +
       '<span class="val ' + d + '">' + word + " " + (score > 0 ? "+" : "") + score + "</span></div>";
   }
+  function newsOf(code) { return ((MARKET && MARKET.news) || {})[code] || []; }
   function renderCards() {
     var wl = watch().filter(function (w) { return !ui.hold || (ui.hold === "held") === (w.held !== false); });
     var news = {};
@@ -897,17 +989,23 @@
           var pos = Math.max(0, Math.min(100, (m.price - m.lo52) / (m.hi52 - m.lo52) * 100));
           h += '<div class="r52c" title="' + rangeLabel(m) + ' 최저 ~ 최고"><div class="rlab num" style="font-size:11.5px;color:var(--ink-3)"><span>' + rangeLabel(m) + " " + fmt(m.lo52, d) + "</span><span>" + fmt(m.hi52, d) + '</span></div><div class="rbar" style="margin:6px 0 2px"><i style="left:' + pos.toFixed(1) + '%"></i></div></div>';
         }
-        var tags = stockTags(m);
-        if (tags.length) h += '<div class="c-tags">' + tags.map(function (t) { return "<span>" + esc(t) + "</span>"; }).join("") + "</div>";
+        h += sigsHTML(m);
       } else {
         h += '<div class="c-wait">' + (MARKET ? "이 종목 시세를 아직 받지 못했어요" : "시세 준비 중") + "</div>";
       }
       if (list.length) {
         var lv = { danger: ["warn", "주의"], good: ["good", "호재"], info: ["", "공시"] }[list[0].level] || ["", "공시"];
         h += '<button type="button" class="c-news" data-corp="' + esc(w.stock_code) + '"><span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="t">' + esc(list[0].title) + '</span><span class="num" style="color:var(--ink-3)">' + list.length + "건</span></button>";
+      } else if (w.type === "etf" || w.type === "us") {
+        var nl = newsOf(w.stock_code);
+        if (nl.length) {
+          var nv = { danger: ["warn", "주의"], good: ["good", "호재"] }[nl[0].level] || ["news", "뉴스"];
+          h += '<button type="button" class="c-news" data-corp="' + esc(w.stock_code) + '" data-kind="news"><span class="tag ' + nv[0] + '">' + nv[1] + '</span><span class="t">' + esc(nl[0].title) + '</span><span class="num" style="color:var(--ink-3)">뉴스 ' + nl.length + "건</span></button>";
+        } else {
+          h += '<div class="c-news" style="cursor:default"><span class="t" style="color:var(--ink-3)">' + (MARKET && MARKET.news ? "최근 7일 뉴스 없음" : "뉴스는 봇 업데이트 뒤 30분 안에 채워져요") + "</span></div>";
+        }
       } else {
-        var why = w.type === "etf" ? "ETF라 공시 알림은 없어요" : w.type === "us" ? "미국 주식이라 DART 공시 알림은 없어요" : "최근 공시 없음";
-        h += '<div class="c-news" style="cursor:default"><span class="t" style="color:var(--ink-3)">' + why + "</span></div>";
+        h += '<div class="c-news" style="cursor:default"><span class="t" style="color:var(--ink-3)">최근 공시 없음</span></div>';
       }
       return h + "</article>";
     }).join("");
@@ -915,19 +1013,28 @@
 
   // ---------- 소식
   function renderFeedSegs() {
-    $("kindSeg").innerHTML = [["all", "전체"], ["danger", "주의"], ["good", "호재"], ["dart", "공시"], ["g2b", "입찰"]].map(function (k) {
+    $("kindSeg").innerHTML = [["all", "전체"], ["danger", "주의"], ["good", "호재"], ["dart", "공시"], ["news", "뉴스"], ["g2b", "입찰"]].map(function (k) {
       return '<button type="button" data-kind="' + k[0] + '" aria-pressed="' + (ui.kind === k[0]) + '">' + k[1] + "</button>";
     }).join("");
     $("feedHoldSeg").innerHTML = [["", "모든 종목"], ["held", "보유"], ["unheld", "미보유"]].map(function (k) {
       return '<button type="button" data-fhold="' + k[0] + '" aria-pressed="' + (ui.fhold === k[0]) + '">' + k[1] + "</button>";
     }).join("");
     var w = watch().filter(function (x) { return x.stock_code === ui.corp; })[0];
-    $("corpSeg").innerHTML = ui.corp ? '<button type="button" data-corp-clear aria-pressed="true">' + esc(w ? w.name : ui.corp) + " 공시만 ✕</button>" : "";
+    $("corpSeg").innerHTML = ui.corp ? '<button type="button" data-corp-clear aria-pressed="true">' + esc(w ? w.name : ui.corp) + " 소식만 ✕</button>" : "";
   }
   function feedItems() {
     var dart = ((DATA && DATA.dart) || []).map(function (x) { return Object.assign({ _type: "dart" }, x); });
     var g2b = ((DATA && DATA.g2b) || []).map(function (x) { return Object.assign({ _type: "g2b", level: "g2b" }, x); });
-    return dart.concat(g2b).sort(function (a, b) {
+    var nws = [], nm = (MARKET && MARKET.news) || {};
+    Object.keys(nm).forEach(function (code) {
+      var w = watch().filter(function (x) { return x.stock_code === code; })[0];
+      (nm[code] || []).forEach(function (x) {
+        nws.push(Object.assign({}, x, { _type: "news", stock_code: code, corp: w ? w.name : code,
+          id: "n" + x.id + code, first_seen: x.first_seen ? new Date(x.first_seen * 1000).toISOString() : "",
+          date: x.time ? new Date(x.time * 1000).toISOString() : "" }));
+      });
+    });
+    return dart.concat(g2b, nws).sort(function (a, b) {
       var ka = (a.first_seen || "") + "|" + (a.date || a.opened_at || "") + "|" + a.id, kb = (b.first_seen || "") + "|" + (b.date || b.opened_at || "") + "|" + b.id;
       return ka < kb ? 1 : ka > kb ? -1 : 0;
     });
@@ -939,11 +1046,11 @@
   function renderFeed() {
     var list = feedItems().filter(function (it) {
       if (ui.kind === "danger" || ui.kind === "good") { if (it.level !== ui.kind) return false; }
-      else if (ui.kind === "dart" || ui.kind === "g2b") { if (it._type !== ui.kind) return false; }
+      else if (ui.kind === "dart" || ui.kind === "g2b" || ui.kind === "news") { if (it._type !== ui.kind) return false; }
       if (ui.corp && it.stock_code !== ui.corp) return false;
       if (ui.fhold) {
         var want = ui.fhold === "held";
-        if (it._type === "dart" ? heldOf(it) !== want : !g2bMatchesGroup(it, want)) return false;
+        if (it._type === "g2b" ? !g2bMatchesGroup(it, want) : heldOf(it) !== want) return false;
       }
       return true;
     });
@@ -957,6 +1064,12 @@
         head = '<span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="corp">' + esc(it.corp) + "</span>" +
           (h === true ? '<span class="tag held">보유</span>' : h === false ? '<span class="tag unheld">미보유</span>' : "");
         meta = esc(it.date) + (it.filer ? " · 제출 " + esc(it.filer) : "");
+      } else if (it._type === "news") {
+        var lvn = { danger: ["warn", "주의"], good: ["good", "호재"] }[it.level];
+        var hn = heldOf(it);
+        head = '<span class="tag news">뉴스</span>' + (lvn ? '<span class="tag ' + lvn[0] + '">' + lvn[1] + "</span>" : "") + '<span class="corp">' + esc(it.corp) + "</span>" +
+          (hn === true ? '<span class="tag held">보유</span>' : hn === false ? '<span class="tag unheld">미보유</span>' : "");
+        meta = esc(it.source || "") + (it.time ? " · " + esc(ago(it.time * 1000)) + " 기사" : "");
       } else {
         head = '<span class="tag bid">개찰' + (it.kind ? " · " + esc(it.kind) : "") + "</span>" + (it.agency ? '<span class="corp">' + esc(it.agency) + "</span>" : "");
         meta = (it.opened_at ? "개찰 " + esc(it.opened_at) : "") + (it.status ? " · " + esc(it.status) : "") +
@@ -964,9 +1077,9 @@
           (it.matched && it.matched.length ? " · 키워드 " + esc(it.matched.join(", ")) : "");
       }
       if (isNew(it)) head += '<span class="tag new">NEW</span>';
-      var seen = it.first_seen ? " · 발견 " + esc(ago(it.first_seen)) : "";
+      var seen = it.first_seen && it._type !== "news" ? " · 발견 " + esc(ago(it.first_seen)) : "";
       var inner = '<div class="row1">' + head + '</div><div class="title">' + esc(it.title) + '</div><div class="meta num">' + meta + seen + "</div>";
-      var cls = "item " + (it._type === "g2b" ? "g2b" : (it.level || ""));
+      var cls = "item " + (it._type === "g2b" ? "g2b" : it._type === "news" && it.level === "info" ? "g2b" : (it.level || ""));
       return link ? '<a class="' + cls + '" href="' + esc(link) + '" target="_blank" rel="noopener">' + inner + "</a>" : '<div class="' + cls + '">' + inner + "</div>";
     }).join("");
   }
@@ -1037,8 +1150,11 @@
   }
   document.addEventListener("click", function (ev) {
     var t = ev.target;
+    var tipEl = t.closest("[data-tip]");
+    if (tipEl) { if (tipFor === tipEl) hideTip(); else showTip(tipEl); return; }   // 휴대폰: 눌러서 설명 보기
+    if (tipFor) hideTip();
     var news = t.closest(".c-news[data-corp]");
-    if (news) { ui.corp = news.getAttribute("data-corp"); ui.kind = "all"; ui.limit = PAGE; renderFeedSegs(); renderFeed(); $("feedBlock").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    if (news) { ui.corp = news.getAttribute("data-corp"); ui.kind = news.getAttribute("data-kind") || "all"; ui.limit = PAGE; renderFeedSegs(); renderFeed(); $("feedBlock").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
     var b = t.closest("button");
     if (b && b.id === "evMore") { ui.evAll = !ui.evAll; renderEvents(); return; }
     if (b && b.hasAttribute("data-range")) { ui.range = b.getAttribute("data-range"); remember(); renderChart(); return; }

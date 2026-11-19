@@ -18,6 +18,8 @@ GitHub 저장소에 올려 GitHub Pages 대시보드가 갱신되게 합니다.
 """
 import argparse
 import base64
+import email.utils
+import hashlib
 import io
 import json
 import os
@@ -36,7 +38,7 @@ try:
 except ImportError:  # 윈도우
     fcntl = None
 
-VERSION = "2.4-phone"
+VERSION = "2.5-phone"
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.json")
@@ -179,6 +181,8 @@ def validate_config(cfg):
     mk = cfg.get("market", {})
     if not isinstance(mk, dict) or not isinstance(mk.get("indices", []), list):
         return "market.indices 가 목록이 아님"
+    if mk.get("news_discord", "none") not in ALERT_LEVELS:
+        return f"market.news_discord 는 all / keywords / none 중 하나여야 해요: {mk.get('news_discord')}"
     for ix in mk.get("indices", []):
         if not isinstance(ix, dict) or not (ix.get("code") or ix.get("symbol")) or not ix.get("name"):
             return f"market.indices 항목에는 name 과 symbol 이 있어야 해요: {ix}"
@@ -652,7 +656,13 @@ BROWSER_UA = ("Mozilla/5.0 (Linux; Android 13; SM-G981N) AppleWebKit/537.36 "
 MARKET_BRANCH = "market"
 MARKET_FILE = "market.json"
 MARKET_KINDS = ("kr_index", "world_index", "marketindex")
+NEWS_RSS = "https://news.google.com/rss/search"
+DEFAULT_NEWS_GOOD = ["급등", "상승", "신고가", "최고가", "호실적", "어닝 서프라이즈", "깜짝 실적", "목표가 상향", "목표주가 상향",
+                     "수주", "계약 체결", "승인", "자사주 매입", "배당 인상", "증액"]
+DEFAULT_NEWS_BAD = ["급락", "하락", "신저가", "폭락", "소송", "리콜", "조사", "제재", "적자", "어닝 쇼크", "목표가 하향",
+                    "목표주가 하향", "감원", "해고", "규제", "벌금", "배당 삭감"]
 DEFAULT_MARKET = {"enabled": True, "open_seconds": 120, "closed_minutes": 30, "history_hours": 6,
+                  "news_minutes": 30, "news_types": ["us", "etf"], "news_discord": "none",
                   "intraday_minutes": 15, "upload_seconds": 120, "indices": []}
 
 
@@ -936,6 +946,53 @@ def indicators(closes):
     return out
 
 
+def fetch_news(query, limit=8):
+    """Google 뉴스 RSS (한국어) → [{id, title, source, url, time}] 최신순"""
+    url = NEWS_RSS + "?" + urllib.parse.urlencode({"q": f"{query} when:7d", "hl": "ko", "gl": "KR", "ceid": "KR:ko"})
+    root = ET.fromstring(naver_get(url))
+    out = []
+    for it in root.iter("item"):
+        title = (it.findtext("title") or "").strip()
+        src_el = it.find("source")
+        source = (src_el.text or "").strip() if src_el is not None else ""
+        if source and title.endswith(" - " + source):
+            title = title[: -len(source) - 3].strip()
+        link = (it.findtext("link") or "").strip()
+        try:
+            when = int(email.utils.parsedate_to_datetime(it.findtext("pubDate") or "").timestamp())
+        except (TypeError, ValueError, IndexError):
+            when = None
+        if title and link:
+            out.append({"id": hashlib.sha1(link.encode()).hexdigest()[:12], "title": title, "source": source,
+                        "url": link, "time": when})
+    out.sort(key=lambda x: x["time"] or 0, reverse=True)
+    return out[:limit]
+
+
+def news_level(title, mk):
+    if any(k in title for k in mk.get("news_bad") or DEFAULT_NEWS_BAD):
+        return "danger"
+    if any(k in title for k in mk.get("news_good") or DEFAULT_NEWS_GOOD):
+        return "good"
+    return "info"
+
+
+def news_query(c):
+    if c.get("news"):
+        return c["news"]
+    return f"{c.get('name')} 주가" if c.get("type") == "us" else str(c.get("name"))
+
+
+def embed_news(it):
+    held = it.get("held", True)
+    return {
+        "title": _trim(f"{EMOJI[it['level']]} [{it['corp']} · {held_word(held)}] {it['title']}", 256),
+        "url": it["url"], "color": COLOR[it["level"]],
+        "fields": [{"name": "출처", "value": _trim(it.get("source") or "-", 100), "inline": True}],
+        "footer": {"text": "종목 뉴스 · 제목 키워드로 분류"},
+    }
+
+
 def market_targets(cfg):
     out = []
     for ix in cfg.get("market", {}).get("indices", []):
@@ -944,7 +1001,7 @@ def market_targets(cfg):
     for c in cfg.get("dart", {}).get("companies", []):
         kind = "us_stock" if c.get("type") == "us" else "kr_stock"
         out.append({"kind": kind, "code": c["stock_code"], "name": c.get("name"), "held": is_held(c),
-                    "type": c.get("type", "stock"), "exchange": c.get("exchange", "")})
+                    "type": c.get("type", "stock"), "exchange": c.get("exchange", ""), "news_q": news_query(c)})
     return out
 
 
@@ -1322,6 +1379,35 @@ class Radar:
                 log(f"일봉 못 받음 ({t['name']}): {e}")
             time.sleep(0.2)
 
+        # 5) 종목 뉴스 (공시가 없는 미국 주식·ETF, 30분마다)
+        news = cache.setdefault("news", {})
+        nat = cache.setdefault("news_at", {})
+        nseen = cache.setdefault("news_seen", {})
+        ntypes = m.get("news_types") or []
+        npolicy = ALERT_LEVELS.get(m.get("news_discord", "none"), set())
+        news_err = 0
+        for t in targets:
+            if t.get("type") not in ntypes or ts - nat.get(t["code"], 0) < float(m["news_minutes"]) * 60:
+                continue
+            first = t["code"] not in nat
+            try:
+                items = fetch_news(t["news_q"])
+                nat[t["code"]] = ts
+            except Exception as e:  # noqa: BLE001
+                nat[t["code"]] = ts - float(m["news_minutes"]) * 60 + 600  # 10분 뒤 다시
+                news_err += 1
+                log(f"뉴스 못 받음 ({t['name']}): {e}")
+                continue
+            for it in items:
+                it["level"] = news_level(it["title"], m)
+                it["first_seen"] = nseen.setdefault(it["id"], int(ts))
+                if not first and it["first_seen"] == int(ts) and it["level"] in npolicy:
+                    alerts.append(embed_news(dict(it, corp=t["name"], held=t.get("held", True))))
+            news[t["code"]] = items
+            time.sleep(0.3)
+        for k in [k for k, v in nseen.items() if ts - v > 14 * 86400]:
+            del nseen[k]
+
         # 다음 확인: 열린 시장이 있으면 짧게
         any_open = any((q or {}).get("status") == "OPEN" for q in cache["q"].values())
         weekday = now().weekday() < 5
@@ -1339,6 +1425,8 @@ class Radar:
         stamps = [q.get("at", 0) for q in cache["q"].values()]
         payload = {"updated_at": datetime.fromtimestamp(max(stamps), KST).isoformat(timespec="seconds") if stamps else "",
                    "source": "네이버 증권",
+                   "news": {code: items for code, items in news.items()
+                            if any(t["code"] == code and t.get("type") in ntypes for t in targets)},
                    "indices": [market_entry(x, cache, ts) for x in targets if x["kind"] not in ("kr_stock", "us_stock")],
                    "stocks": [market_entry(x, cache, ts) for x in targets if x["kind"] in ("kr_stock", "us_stock")]}
         self.market_text = dumps(payload)
@@ -1351,6 +1439,8 @@ class Radar:
         n_ix = sum(1 for x in payload["indices"] if not x.get("missing"))
         n_st = sum(1 for x in payload["stocks"] if not x.get("missing"))
         msg = f"정상 · 지수 {n_ix}개 · 종목 {n_st}개"
+        if news_err:
+            msg += f" · 뉴스 {news_err}곳 못 받음"
         if errors:
             msg += " · 못 받은 것: " + ", ".join(errors)
         return update_status(self.state, "market", True, msg, alerts)

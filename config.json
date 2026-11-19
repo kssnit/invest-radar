@@ -69,6 +69,9 @@
   "closed_minutes": 30,
   "history_hours": 6,
   "intraday_minutes": 15,
+  "news_minutes": 30,
+  "news_types": ["us", "etf"],
+  "news_discord": "none",
   "upload_seconds": 120,
   "indices": [
    {"name": "코스피", "symbol": "KOSPI", "kind": "kr_index", "group": "국내"},
