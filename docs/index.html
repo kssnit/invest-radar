@@ -64,6 +64,10 @@
   .tag.good { color: var(--green); background: rgba(52,196,124,.12); }
   .tag.g2b { color: var(--blue); background: rgba(91,140,255,.12); }
   .tag.corp { color: var(--text); }
+  .tag.held { color: var(--violet); background: rgba(155,140,255,.14); }
+  .tag.unheld { color: var(--sub); background: transparent; border: 1px dashed var(--line); padding: 1px 6px; }
+  .chip.unheld:not(.on) { border-style: dashed; }
+  .chip .n { opacity: .6; margin-left: 3px; font-weight: 500; }
   .new { font-size: 10.5px; font-weight: 800; color: #111; background: var(--amber); padding: 1px 6px; border-radius: 5px; }
   .title { font-size: 15px; line-height: 1.45; font-weight: 550; word-break: keep-all; overflow-wrap: anywhere; }
   .meta2 { color: var(--sub); font-size: 12.5px; margin-top: 6px; line-height: 1.5; }
@@ -95,6 +99,7 @@
 
   <div class="section-title">소식</div>
   <div class="filters" id="kindFilters"></div>
+  <div class="filters" id="holdFilters"></div>
   <div class="filters" id="corpFilters"></div>
   <div class="feed" id="feed"></div>
 
@@ -106,7 +111,7 @@
   "use strict";
   var DATA = null;
   var ALIVE = null;
-  var state = { kind: "all", corp: "" };
+  var state = { kind: "all", corp: "", hold: "" };
   var REFRESH_MS = 120000;
 
   function $(id) { return document.getElementById(id); }
@@ -198,11 +203,38 @@
     $("kindFilters").innerHTML = kinds.map(function (k) {
       return '<span class="chip' + (state.kind === k[0] ? " on" : "") + '" data-kind="' + k[0] + '">' + k[1] + "</span>";
     }).join("");
-    var corps = (DATA.watchlist || []).map(function (w) { return w.name; });
-    $("corpFilters").innerHTML = corps.length ? ['<span class="chip' + (state.corp === "" ? " on" : "") + '" data-corp="">모든 종목</span>']
-      .concat(corps.map(function (c) {
-        return '<span class="chip' + (state.corp === c ? " on" : "") + '" data-corp="' + esc(c) + '">' + esc(c) + "</span>";
+    var wl = DATA.watchlist || [];
+    var nHeld = wl.filter(function (w) { return w.held !== false; }).length;
+    var holds = [["", "모든 종목", wl.length], ["held", "💼 보유", nHeld], ["unheld", "👀 미보유", wl.length - nHeld]];
+    $("holdFilters").innerHTML = wl.length ? holds.map(function (h) {
+      return '<span class="chip' + (state.hold === h[0] ? " on" : "") + '" data-hold="' + h[0] + '">' + h[1] +
+        '<span class="n">' + h[2] + "</span></span>";
+    }).join("") : "";
+    var shown = wl.filter(function (w) { return !state.hold || (state.hold === "held") === (w.held !== false); });
+    $("corpFilters").innerHTML = shown.length ? ['<span class="chip' + (state.corp === "" ? " on" : "") + '" data-corp="">' +
+        (state.hold === "held" ? "보유 전체" : state.hold === "unheld" ? "미보유 전체" : "종목 전체") + "</span>"]
+      .concat(shown.map(function (w) {
+        return '<span class="chip' + (w.held === false ? " unheld" : "") + (state.corp === w.name ? " on" : "") +
+          '" data-corp="' + esc(w.name) + '">' + esc(w.name) + "</span>";
       })).join("") : "";
+  }
+
+  // 보유 여부는 지금 config.json(watchlist) 기준으로 표시 — 나중에 사고팔아도 지난 카드까지 맞게 바뀝니다
+  function heldOf(it) {
+    var wl = DATA.watchlist || [];
+    for (var i = 0; i < wl.length; i++) {
+      if (it.stock_code && wl[i].stock_code === it.stock_code) return wl[i].held !== false;
+    }
+    return typeof it.held === "boolean" ? it.held : null;
+  }
+
+  function matchHold(it, hold) {
+    if (!hold) return true;
+    var want = hold === "held";
+    if (it._type === "dart") return heldOf(it) === want;
+    return (DATA.watchlist || []).some(function (w) {
+      return (w.held !== false) === want && matchCorp(it, w.name);
+    });
   }
 
   function matchCorp(it, corp) {
@@ -216,7 +248,7 @@
     var list = items().filter(function (it) {
       if (state.kind === "danger" || state.kind === "good") { if (it.level !== state.kind) return false; }
       else if (state.kind === "dart" || state.kind === "g2b") { if (it._type !== state.kind) return false; }
-      return matchCorp(it, state.corp);
+      return matchHold(it, state.hold) && matchCorp(it, state.corp);
     });
     if (!list.length) {
       $("feed").innerHTML = '<div class="empty">아직 표시할 소식이 없어요.<br>새 공시나 입찰 결과가 생기면 여기에 쌓이고 디스코드로 알려드려요.</div>';
@@ -227,7 +259,9 @@
       var head, meta;
       if (it._type === "dart") {
         var lv = { danger: ["danger", "주의"], good: ["good", "호재"], info: ["", "공시"] }[it.level] || ["", "공시"];
-        head = '<span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="tag corp">' + esc(it.corp) + "</span>";
+        var h = heldOf(it);
+        head = '<span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="tag corp">' + esc(it.corp) + "</span>" +
+          (h === true ? '<span class="tag held">보유</span>' : h === false ? '<span class="tag unheld">미보유</span>' : "");
         meta = esc(it.date) + (it.filer ? " · 제출 " + esc(it.filer) : "");
       } else {
         head = '<span class="tag g2b">개찰' + (it.kind ? " · " + esc(it.kind) : "") + "</span>" +
@@ -286,6 +320,7 @@
     if (!c || !DATA) return;
     if (c.hasAttribute("data-kind")) state.kind = c.getAttribute("data-kind");
     if (c.hasAttribute("data-corp")) state.corp = c.getAttribute("data-corp");
+    if (c.hasAttribute("data-hold")) { state.hold = c.getAttribute("data-hold"); state.corp = ""; }
     renderFilters();
     renderFeed();
   });
