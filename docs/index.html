@@ -366,8 +366,9 @@
   "use strict";
   var DATA = null, ALIVE = null, MARKET = null, MARKET_ERR = "", LOADED_AT = 0;
   var REFRESH_MS = 120000, PAGE = 30;
-  var ui = { sel: "", range: "1d", hold: "", sort: "default", kind: "all", fhold: "", corp: "", limit: PAGE };
+  var ui = { sel: "", range: "1d", hold: "", sort: "name", kind: "all", fhold: "", corp: "", limit: PAGE };
   try { var saved = JSON.parse(localStorage.getItem("radar-ui") || "{}"); ["sel", "range", "hold", "sort"].forEach(function (k) { if (saved[k]) ui[k] = saved[k]; }); } catch (e) { /* 저장소 없음 */ }
+  if (ui.sort === "default") ui.sort = "name";   // 예전 '기본 순서' 저장값은 이름순으로
   function remember() { try { localStorage.setItem("radar-ui", JSON.stringify({ sel: ui.sel, range: ui.range, hold: ui.hold, sort: ui.sort })); } catch (e) { /* 무시 */ } }
 
   function $(id) { return document.getElementById(id); }
@@ -880,7 +881,7 @@
     $("holdSeg").innerHTML = [["", "전체", wl.length], ["held", "보유", nH], ["unheld", "미보유", wl.length - nH]].map(function (h) {
       return '<button type="button" data-hold="' + h[0] + '" aria-pressed="' + (ui.hold === h[0]) + '">' + h[1] + '<span class="n">' + h[2] + "</span></button>";
     }).join("");
-    $("sortSeg").innerHTML = [["default", "기본 순서", "config.json 에 적힌 순서 (보유 국내 주식 → ETF → 미국 주식 → 미보유)"], ["pct", "등락률순", "오늘 많이 오른 순"],
+    $("sortSeg").innerHTML = [["name", "이름순", "한글 ㄱ→ㅎ, 그다음 영문 A→Z"], ["pct", "등락률순", "오늘 많이 오른 순"],
       ["pos", "▲ 긍정 신호순", "긍정 신호가 많은 순 (같으면 부정 신호가 적은 순 → 기술 흐름 점수가 높은 순)"],
       ["neg", "▼ 부정 신호순", "부정 신호가 많은 순 (같으면 긍정 신호가 적은 순 → 기술 흐름 점수가 낮은 순)"]].map(function (s) {
       return '<button type="button" data-sort="' + s[0] + '" aria-pressed="' + (ui.sort === s[0]) + '" title="' + s[2] + '">' + s[1] + "</button>";
@@ -969,6 +970,14 @@
     var news = {};
     ((DATA && DATA.dart) || []).forEach(function (x) { (news[x.stock_code] = news[x.stock_code] || []).push(x); });
     var rows = wl.map(function (w, i) { return { w: w, m: stockByCode(w.stock_code), i: i }; });
+    if (ui.sort === "name") {
+      // 한글 이름 먼저 ㄱ→ㅎ, 그다음 영문 A→Z (숫자·기호는 맨 뒤)
+      var grp = function (n) { var c = String(n || "").trim().charAt(0); return /[가-힣ㄱ-ㅎ]/.test(c) ? 0 : /[A-Za-z]/.test(c) ? 1 : 2; };
+      rows.sort(function (a, b) {
+        var ga = grp(a.w.name), gb = grp(b.w.name);
+        return ga - gb || String(a.w.name).localeCompare(String(b.w.name), ga === 1 ? "en" : "ko", { sensitivity: "base", numeric: true });
+      });
+    }
     if (ui.sort === "pct") rows.sort(function (a, b) { return ((b.m && b.m.pct) != null ? b.m.pct : -999) - ((a.m && a.m.pct) != null ? a.m.pct : -999); });
     if (ui.sort === "pos" || ui.sort === "neg") {
       rows.forEach(function (r) {
