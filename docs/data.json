@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-19T23:05:43+09:00",
+ "saved_at": "2026-11-20T01:09:15+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -19,7 +19,7 @@
   },
   "market": {
    "state": "ok",
-   "message": "정상 · 지수 11개 · 종목 19개",
+   "message": "정상 · 지수 11개 · 종목 20개",
    "since": ""
   }
  },
@@ -285,6 +285,12 @@
    "stock_code": "012450",
    "held": false,
    "type": "stock"
+  },
+  {
+   "name": "스페이스X",
+   "stock_code": "SPCX",
+   "held": false,
+   "type": "us"
   }
  ],
  "schedule_text": "평일 07~22시: 공시 1분·입찰 10분마다 / 그 외: 공시 10분·입찰 30분마다 (미보유 종목 공시는 3배 간격)",
