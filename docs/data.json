@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-19T20:51:25+09:00",
+ "saved_at": "2026-11-19T21:54:45+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -16,6 +16,11 @@
    "state": "ok",
    "message": "정상",
    "since": ""
+  },
+  "market": {
+   "state": "fail",
+   "message": "시세를 받지 못했어요: 코스피 ^KS11: HTTP 429; 코스닥 ^KQ11: HTTP 429; S&P 500 ^GSPC: HTTP 429",
+   "since": "2026-11-19T21:54+09:00"
   }
  },
  "dart": [
@@ -223,5 +228,6 @@
   }
  ],
  "schedule_text": "평일 07~22시: 공시 1분·입찰 10분마다 / 그 외: 공시 10분·입찰 30분마다 (미보유 종목 공시는 3배 간격)",
- "device": "갤럭시 S20"
+ "device": "갤럭시 S20",
+ "market_url": "https://raw.githubusercontent.com/kssnit/invest-radar/market/market.json"
 }
