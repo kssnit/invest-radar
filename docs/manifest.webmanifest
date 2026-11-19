@@ -1,0 +1,17 @@
+{
+  "name": "내 투자 레이더",
+  "short_name": "투자 레이더",
+  "description": "보유 종목 시세·공시·뉴스·입찰과 1~2일 전망을 한 화면에",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a1222",
+  "theme_color": "#0a1222",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
