@@ -1,0 +1,6 @@
+.env
+logs/
+state/state.json
+state/bot.lock
+__pycache__/
+*.tmp
