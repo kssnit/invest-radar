@@ -1,0 +1,94 @@
+{
+ "device_name": "갤럭시 S20",
+
+ "dashboard": {
+  "title": "내 투자 레이더",
+  "max_dart": 200,
+  "max_g2b": 100
+ },
+
+ "schedule": {
+  "fast_hours": [7, 22],
+  "fast_weekdays_only": true,
+  "dart_fast_seconds": 60,
+  "dart_slow_seconds": 600,
+  "g2b_fast_seconds": 600,
+  "g2b_slow_seconds": 1800,
+  "upload_min_seconds": 60,
+  "alive_minutes": 20,
+  "config_sync_minutes": 10
+ },
+
+ "discord": {
+  "username": "투자 레이더",
+  "mention_on_danger": ""
+ },
+
+ "dart": {
+  "enabled": true,
+  "lookback_days": 3,
+  "companies": [
+   {"name": "한화시스템", "stock_code": "272210"},
+   {"name": "LIG D&A", "stock_code": "079550"},
+   {"name": "한화에어로스페이스", "stock_code": "012450"},
+   {"name": "한화솔루션", "stock_code": "009830"},
+   {"name": "삼성전자", "stock_code": "005930"},
+   {"name": "현대차", "stock_code": "005380"},
+   {"name": "대한광통신", "stock_code": "010170"},
+   {"name": "클로봇", "stock_code": "466100"},
+   {"name": "현대무벡스", "stock_code": "319400"},
+   {"name": "카카오", "stock_code": "035720"},
+   {"name": "대한항공", "stock_code": "003490"}
+  ],
+  "danger_keywords": [
+   "유상증자", "전환사채", "신주인수권부사채", "교환사채", "감자결정",
+   "불성실공시", "관리종목", "거래정지", "매매거래정지", "상장폐지", "상장적격성",
+   "횡령", "배임", "회생절차", "부도", "입찰참가자격", "부정당", "영업정지",
+   "소송등의제기", "최대주주변경"
+  ],
+  "good_keywords": [
+   "단일판매", "공급계약", "수주", "자기주식취득", "자기주식 취득", "주식소각",
+   "무상증자", "현금ㆍ현물배당", "현금배당", "기술이전", "우선협상"
+  ]
+ },
+
+ "g2b": {
+  "enabled": true,
+  "operations": ["getOpengResultListInfoServc", "getOpengResultListInfoThng"],
+  "inqry_div": "2",
+  "lookback_hours": 2,
+  "company_keywords": [
+   "한화시스템", "한화에어로스페이스", "엘아이지", "LIG디펜스", "한국항공우주"
+  ],
+  "title_keywords": [
+   "초소형위성", "군집위성", "위성체계", "SAR", "천궁", "중거리지대공",
+   "유도탄", "유도무기", "탐색기", "다기능레이다", "장거리공대공", "방공"
+  ]
+ },
+
+ "event_remind_days": [7, 1, 0],
+ "event_remind_hour": 8,
+ "events": [
+  {
+   "name": "Indo Defence 2026",
+   "start": "2026-11-18",
+   "end": "2026-11-21",
+   "place": "인도네시아 자카르타",
+   "note": "인도네시아가 천궁-II 포대 2개 도입 검토 중 (한화시스템 레이더)"
+  },
+  {
+   "name": "LIG D&A 집행정지 결정 시한",
+   "start": "2026-11-20",
+   "end": "2026-11-20",
+   "place": "서울행정법원",
+   "note": "임시 집행정지 효력 만료일. 인용이면 입찰 자격 유지, 기각이면 21일부터 2년 입찰 제한"
+  },
+  {
+   "name": "IDEX 2027",
+   "start": "2027-01-25",
+   "end": "2027-01-29",
+   "place": "UAE 아부다비",
+   "note": "UAE가 전시 기간에 계약을 공개 발표하는 중동 최대 방산전시회"
+  }
+ ]
+}
