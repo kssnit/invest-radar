@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>투자 레이더</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --line: #262b36;
+    --text: #e8eaf0; --sub: #9aa1b2; --dim: #6b7285;
+    --red: #f2555a; --green: #34c47c; --blue: #5b8cff; --amber: #f5a524; --violet: #9b8cff;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 18px 16px calc(40px + env(safe-area-inset-bottom)); }
+
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 2px 0 4px; letter-spacing: -0.4px; }
+  .updated { color: var(--sub); font-size: 13px; }
+  .btn { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .btn:active { transform: scale(.97); }
+
+  .status { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 10px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--sub); max-width: 100%; }
+  .pill b { color: var(--text); font-weight: 600; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--green); } .dot.fail { background: var(--red); } .dot.off { background: var(--dim); }
+  .dot.warn { background: var(--amber); }
+  .pill .msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+
+  .section-title { font-size: 13px; color: var(--sub); margin: 18px 2px 8px; font-weight: 600; }
+  .events { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .events::-webkit-scrollbar { display: none; }
+  .ev { flex: 0 0 auto; width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 13px; }
+  .ev.now { border-color: rgba(245,165,36,.55); }
+  .ev .dday { display: inline-block; font-size: 12px; font-weight: 700; color: var(--amber); background: rgba(245,165,36,.12);
+    border-radius: 6px; padding: 2px 7px; margin-bottom: 7px; }
+  .ev .name { font-weight: 650; font-size: 15px; margin-bottom: 4px; }
+  .ev .meta { color: var(--sub); font-size: 12px; margin-bottom: 6px; }
+  .ev .note { color: var(--text); font-size: 12.5px; line-height: 1.45; opacity: .85; }
+
+  .filters { display: flex; gap: 7px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .chip { flex: none; font-size: 13px; padding: 7px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line);
+    color: var(--sub); cursor: pointer; user-select: none; }
+  .chip.on { background: var(--text); color: #111; border-color: var(--text); font-weight: 600; }
+
+  .feed { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
+  .card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 14px;
+    border-left: 3px solid var(--dim); }
+  .card:hover { background: var(--panel2); }
+  .card.danger { border-left-color: var(--red); } .card.good { border-left-color: var(--green); }
+  .card.g2b { border-left-color: var(--blue); }
+  .row1 { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; flex-wrap: wrap; }
+  .tag { font-size: 11.5px; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: var(--panel2); color: var(--sub); }
+  .tag.danger { color: var(--red); background: rgba(242,85,90,.12); }
+  .tag.good { color: var(--green); background: rgba(52,196,124,.12); }
+  .tag.g2b { color: var(--blue); background: rgba(91,140,255,.12); }
+  .tag.corp { color: var(--text); }
+  .new { font-size: 10.5px; font-weight: 800; color: #111; background: var(--amber); padding: 1px 6px; border-radius: 5px; }
+  .title { font-size: 15px; line-height: 1.45; font-weight: 550; word-break: keep-all; overflow-wrap: anywhere; }
+  .meta2 { color: var(--sub); font-size: 12.5px; margin-top: 6px; line-height: 1.5; }
+  .meta2 .top { color: var(--text); }
+  .empty { text-align: center; color: var(--sub); padding: 40px 10px; background: var(--panel); border-radius: var(--radius);
+    border: 1px dashed var(--line); font-size: 14px; line-height: 1.6; }
+  .banner { background: rgba(155,140,255,.12); color: var(--violet); border: 1px solid rgba(155,140,255,.35);
+    border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 14px; }
+  .error { background: rgba(242,85,90,.1); color: var(--red); border: 1px solid rgba(242,85,90,.35);
+    border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; line-height: 1.5; }
+  footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 26px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="banner"></div>
+  <header>
+    <div>
+      <h1 id="title">투자 레이더</h1>
+      <div class="updated" id="updated">불러오는 중…</div>
+    </div>
+    <button class="btn" id="reload" type="button">새로고침</button>
+  </header>
+  <div id="err"></div>
+  <div class="status" id="status"></div>
+
+  <div class="section-title" id="evTitle" hidden>다가오는 일정</div>
+  <div class="events" id="events"></div>
+
+  <div class="section-title">소식</div>
+  <div class="filters" id="kindFilters"></div>
+  <div class="filters" id="corpFilters"></div>
+  <div class="feed" id="feed"></div>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var DATA = null;
+  var ALIVE = null;
+  var state = { kind: "all", corp: "" };
+  var REFRESH_MS = 120000;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function safeUrl(u) { return /^https?:\/\//i.test(u || "") ? u : ""; }
+
+  function todayKST() {
+    var p = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    return p; // YYYY-MM-DD
+  }
+  function daysBetween(a, b) { // b - a, YYYY-MM-DD 문자열
+    return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400000);
+  }
+  function ago(iso) {
+    if (!iso) return "";
+    var t = Date.parse(iso);
+    if (isNaN(t)) return "";
+    var m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return "방금";
+    if (m < 60) return m + "분 전";
+    var h = Math.round(m / 60);
+    if (h < 24) return h + "시간 전";
+    return Math.round(h / 24) + "일 전";
+  }
+  function isNew(it) {
+    var t = Date.parse(it.first_seen || "");
+    return !isNaN(t) && Date.now() - t < 24 * 3600 * 1000;
+  }
+
+  function renderStatus() {
+    var labels = { dart: "DART 공시", g2b: "나라장터" };
+    var words = { ok: "정상", fail: "오류", off: "꺼짐" };
+    var st = DATA.status || {};
+    var html = "";
+    var mins = ALIVE && ALIVE.alive_at ? (Date.now() - Date.parse(ALIVE.alive_at)) / 60000 : null;
+    var bcls = mins == null || isNaN(mins) ? "off" : mins <= 30 ? "ok" : mins <= 60 ? "warn" : "fail";
+    var dev = (ALIVE && ALIVE.device) || DATA.device || "봇";
+    html += '<span class="pill"><span class="dot ' + bcls + '"></span><b>' + esc(dev) + "</b> " +
+      (bcls === "off" ? "신호 없음" : esc(ago(ALIVE.alive_at)) + " 확인" + (bcls === "fail" ? " · 멈춘 것 같아요" : "")) + "</span>";
+    var keys = ["dart", "g2b"];
+    if (st.github && st.github.state === "fail") keys.push("github");
+    labels.github = "업로드";
+    keys.forEach(function (k) {
+      var s = st[k] || { state: "off", message: "아직 실행 전" };
+      html += '<span class="pill" title="' + esc(s.message) + '"><span class="dot ' + esc(s.state) + '"></span><b>' +
+        labels[k] + '</b> ' + (words[s.state] || "") +
+        (s.state !== "ok" && s.message ? ' · <span class="msg">' + esc(s.message) + "</span>" : "") + "</span>";
+    });
+    $("status").innerHTML = html;
+  }
+
+  function renderEvents() {
+    var today = todayKST();
+    var evs = (DATA.events || []).map(function (e) {
+      var end = e.end || e.start;
+      return Object.assign({}, e, { _end: end, _d: daysBetween(today, e.start), _endD: daysBetween(today, end) });
+    }).filter(function (e) { return e._endD >= 0; })
+      .sort(function (a, b) { return a._d - b._d; });
+    $("evTitle").hidden = evs.length === 0;
+    $("events").innerHTML = evs.map(function (e) {
+      var badge = e._d > 0 ? "D-" + e._d : (e._d === 0 ? "오늘 시작" : "진행 중");
+      var period = e.start === e._end ? e.start : e.start + " ~ " + e._end;
+      var link = safeUrl(e.url);
+      var inner = '<div class="dday">' + badge + '</div><div class="name">' + esc(e.name) + '</div>' +
+        '<div class="meta">' + esc(period) + (e.place ? " · " + esc(e.place) : "") + "</div>" +
+        (e.note ? '<div class="note">' + esc(e.note) + "</div>" : "");
+      var cls = "ev" + (e._d <= 0 ? " now" : "");
+      return link ? '<a class="' + cls + '" href="' + esc(link) + '" target="_blank" rel="noopener">' + inner + "</a>"
+                  : '<div class="' + cls + '">' + inner + "</div>";
+    }).join("");
+  }
+
+  function items() {
+    var dart = (DATA.dart || []).map(function (x) { return Object.assign({ _type: "dart" }, x); });
+    var g2b = (DATA.g2b || []).map(function (x) { return Object.assign({ _type: "g2b", level: "g2b" }, x); });
+    return dart.concat(g2b).sort(function (a, b) {
+      var ka = (a.first_seen || "") + "|" + (a.date || a.opened_at || "") + "|" + a.id;
+      var kb = (b.first_seen || "") + "|" + (b.date || b.opened_at || "") + "|" + b.id;
+      return ka < kb ? 1 : ka > kb ? -1 : 0;
+    });
+  }
+
+  function renderFilters() {
+    var kinds = [["all", "전체"], ["danger", "🚨 주의"], ["good", "📈 호재"], ["dart", "📄 공시"], ["g2b", "🏛️ 입찰"]];
+    $("kindFilters").innerHTML = kinds.map(function (k) {
+      return '<span class="chip' + (state.kind === k[0] ? " on" : "") + '" data-kind="' + k[0] + '">' + k[1] + "</span>";
+    }).join("");
+    var corps = (DATA.watchlist || []).map(function (w) { return w.name; });
+    $("corpFilters").innerHTML = corps.length ? ['<span class="chip' + (state.corp === "" ? " on" : "") + '" data-corp="">모든 종목</span>']
+      .concat(corps.map(function (c) {
+        return '<span class="chip' + (state.corp === c ? " on" : "") + '" data-corp="' + esc(c) + '">' + esc(c) + "</span>";
+      })).join("") : "";
+  }
+
+  function matchCorp(it, corp) {
+    if (!corp) return true;
+    if (it._type === "dart") return it.corp === corp;
+    var blob = [it.title, it.top, (it.matched || []).join(" ")].join(" ");
+    return blob.indexOf(corp) >= 0;
+  }
+
+  function renderFeed() {
+    var list = items().filter(function (it) {
+      if (state.kind === "danger" || state.kind === "good") { if (it.level !== state.kind) return false; }
+      else if (state.kind === "dart" || state.kind === "g2b") { if (it._type !== state.kind) return false; }
+      return matchCorp(it, state.corp);
+    });
+    if (!list.length) {
+      $("feed").innerHTML = '<div class="empty">아직 표시할 소식이 없어요.<br>새 공시나 입찰 결과가 생기면 여기에 쌓이고 디스코드로 알려드려요.</div>';
+      return;
+    }
+    $("feed").innerHTML = list.map(function (it) {
+      var link = safeUrl(it.url);
+      var head, meta;
+      if (it._type === "dart") {
+        var lv = { danger: ["danger", "주의"], good: ["good", "호재"], info: ["", "공시"] }[it.level] || ["", "공시"];
+        head = '<span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="tag corp">' + esc(it.corp) + "</span>";
+        meta = esc(it.date) + (it.filer ? " · 제출 " + esc(it.filer) : "");
+      } else {
+        head = '<span class="tag g2b">개찰' + (it.kind ? " · " + esc(it.kind) : "") + "</span>" +
+          (it.agency ? '<span class="tag corp">' + esc(it.agency) + "</span>" : "");
+        meta = (it.opened_at ? "개찰 " + esc(it.opened_at) : "") + (it.status ? " · " + esc(it.status) : "") +
+          (it.notice_no ? " · " + esc(it.notice_no) : "") +
+          (it.top ? '<br>1순위 <span class="top">' + esc(it.top) + "</span>" : "") +
+          (it.matched && it.matched.length ? "<br>키워드 " + esc(it.matched.join(", ")) : "");
+      }
+      if (isNew(it)) head += '<span class="new">NEW</span>';
+      var seen = it.first_seen ? " · 발견 " + esc(ago(it.first_seen)) : "";
+      var inner = '<div class="row1">' + head + '</div><div class="title">' + esc(it.title) + '</div><div class="meta2">' + meta + seen + "</div>";
+      var cls = "card " + (it._type === "g2b" ? "g2b" : (it.level || ""));
+      return link ? '<a class="' + cls + '" href="' + esc(link) + '" target="_blank" rel="noopener">' + inner + "</a>"
+                  : '<div class="' + cls + '">' + inner + "</div>";
+    }).join("");
+  }
+
+  function renderAll() {
+    $("title").textContent = DATA.title || "투자 레이더";
+    document.title = DATA.title || "투자 레이더";
+    $("updated").textContent = DATA.saved_at ? "마지막 변동 " + ago(DATA.saved_at) : "아직 첫 실행 전이에요";
+    renderStatus();
+    renderEvents();
+    renderFilters();
+    renderFeed();
+    $("foot").innerHTML = (DATA.schedule_text ? "확인 주기 · " + esc(DATA.schedule_text) + "<br>" : "") +
+      "이 화면은 2분마다 새로 불러와요. 공시 원문은 DART에서 확인하세요.<br>투자 판단의 책임은 본인에게 있어요.";
+  }
+
+  function load() {
+    if (window.__PREVIEW_DATA__) {
+      DATA = window.__PREVIEW_DATA__;
+      ALIVE = window.__PREVIEW_ALIVE__ || null;
+      $("banner").innerHTML = '<div class="banner">미리보기 화면이에요. 표시된 내용은 예시 데이터예요.</div>';
+      renderAll();
+      return;
+    }
+    var t = Date.now();
+    var aliveReq = fetch("alive.json?t=" + t, { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+    fetch("data.json?t=" + t, { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (d) { return aliveReq.then(function (a) { DATA = d; ALIVE = a; }); })
+      .then(function () { $("err").innerHTML = ""; renderAll(); })
+      .catch(function (e) {
+        $("err").innerHTML = '<div class="error">data.json 을 불러오지 못했어요 (' + esc(e.message) +
+          ').<br>GitHub Pages 주소로 열었는지, 봇이 한 번 이상 실행됐는지 확인하세요.</div>';
+        $("updated").textContent = "불러오기 실패";
+      });
+  }
+
+  document.addEventListener("click", function (e) {
+    var c = e.target.closest(".chip");
+    if (!c || !DATA) return;
+    if (c.hasAttribute("data-kind")) state.kind = c.getAttribute("data-kind");
+    if (c.hasAttribute("data-corp")) state.corp = c.getAttribute("data-corp");
+    renderFilters();
+    renderFeed();
+  });
+  $("reload").addEventListener("click", load);
+  setInterval(load, REFRESH_MS);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) load(); });
+  load();
+})();
+</script>
+</body>
+</html>
