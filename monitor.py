@@ -36,7 +36,7 @@ try:
 except ImportError:  # 윈도우
     fcntl = None
 
-VERSION = "2.1-phone"
+VERSION = "2.2-phone"
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.json")
@@ -46,6 +46,7 @@ DATA_PATH = os.path.join(ROOT, "docs", "data.json")
 ALIVE_PATH = os.path.join(ROOT, "docs", "alive.json")
 LOG_PATH = os.path.join(ROOT, "logs", "bot.log")
 ENV_PATH = os.path.join(ROOT, ".env")
+MARKET_CACHE_PATH = os.path.join(ROOT, "state", "market_cache.json")
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 DART_CORP_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
@@ -58,7 +59,7 @@ COLOR = {"danger": 0xE5484D, "good": 0x30A46C, "info": 0x8B8D98,
          "g2b": 0x3E63DD, "event": 0xF5A524, "system": 0x6E56CF}
 EMOJI = {"danger": "🚨", "good": "📈", "info": "📄", "g2b": "🏛️", "event": "📅"}
 G2B_KIND = {"Servc": "용역", "Thng": "물품", "Cnstwk": "공사", "Frgcpt": "외자"}
-LABEL = {"dart": "DART 공시", "g2b": "나라장터", "github": "대시보드 업로드"}
+LABEL = {"dart": "DART 공시", "g2b": "나라장터", "github": "대시보드 업로드", "market": "시세"}
 
 FAIL_WARN_MINUTES = 30      # 이 시간 넘게 계속 실패하면 디스코드로 경고
 PENDING_MAX = 60            # 전송 못 한 알림을 최대 몇 개까지 쌓아 둘지
@@ -163,6 +164,12 @@ def validate_config(cfg):
     for k in ("alert_held", "alert_unheld"):
         if k in cfg.get("dart", {}) and cfg["dart"][k] not in ALERT_LEVELS:
             return f"dart.{k} 는 all / keywords / none 중 하나여야 해요: {cfg['dart'][k]}"
+    mk = cfg.get("market", {})
+    if not isinstance(mk, dict) or not isinstance(mk.get("indices", []), list):
+        return "market.indices 가 목록이 아님"
+    for ix in mk.get("indices", []):
+        if not isinstance(ix, dict) or not ix.get("symbol") or not ix.get("name"):
+            return f"market.indices 항목에는 name 과 symbol 이 있어야 해요: {ix}"
     for ev in cfg.get("events", []):
         try:
             date.fromisoformat(ev["start"])
@@ -272,6 +279,29 @@ class GitHub:
                 self.sha.pop(path, None)
                 continue
             raise RuntimeError(f"GitHub 업로드 실패 {path} HTTP {code}: {obj.get('message')}")
+
+    def publish_branch(self, branch, files, message):
+        """files 만 담은 '기록 없는' 커밋 하나로 branch 를 덮어씁니다.
+        시세처럼 자주 바뀌는 파일용: 저장소 기록이 쌓이지 않고, main 이 아니라 Pages 재배포도 일어나지 않아요."""
+        api = f"{GITHUB_API}/repos/{self.repo}/git"
+        tree = [{"path": p, "mode": "100644", "type": "blob", "content": t} for p, t in files.items()]
+        code, obj = github_request("POST", f"{api}/trees", self.token, {"tree": tree})
+        if code != 201:
+            raise RuntimeError(f"GitHub 트리 생성 실패 HTTP {code}: {obj.get('message')}")
+        code, obj = github_request("POST", f"{api}/commits", self.token,
+                                   {"message": message, "tree": obj["sha"], "parents": []})
+        if code != 201:
+            raise RuntimeError(f"GitHub 커밋 생성 실패 HTTP {code}: {obj.get('message')}")
+        sha = obj["sha"]
+        code, obj = github_request("PATCH", f"{api}/refs/heads/{branch}", self.token, {"sha": sha, "force": True})
+        if code == 200:
+            return
+        if code in (404, 422):  # 브랜치가 아직 없음 → 새로 만들기
+            code, obj = github_request("POST", f"{api}/refs", self.token,
+                                       {"ref": f"refs/heads/{branch}", "sha": sha})
+            if code == 201:
+                return
+        raise RuntimeError(f"GitHub 브랜치 갱신 실패 {branch} HTTP {code}: {obj.get('message')}")
 
     def delete(self, path, message):
         """파일이 있으면 지웁니다. 지웠으면 True, 원래 없으면 False."""
@@ -594,6 +624,269 @@ def send_embeds(webhook, cfg, embeds, content="", dry_run=False):
     return sent
 
 
+# ---------------------------------------------------------------- 시세 (Yahoo Finance 차트 API, 키 필요 없음)
+YAHOO_HOSTS = ("https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com")
+BROWSER_UA = ("Mozilla/5.0 (Linux; Android 13; SM-G981N) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
+MARKET_BRANCH = "market"
+MARKET_FILE = "market.json"
+DEFAULT_MARKET = {"enabled": True, "open_seconds": 120, "closed_minutes": 30,
+                  "history_hours": 6, "upload_seconds": 120, "indices": []}
+
+
+class NoSymbol(RuntimeError):
+    pass
+
+
+def yahoo_chart(symbol, rng, interval):
+    """차트 API 한 번 호출 → chart.result[0]. 없는 종목이면 NoSymbol."""
+    path = "/v8/finance/chart/" + urllib.parse.quote(symbol, safe="")
+    query = urllib.parse.urlencode({"range": rng, "interval": interval, "includePrePost": "false"})
+    last = None
+    for host in YAHOO_HOSTS:
+        req = urllib.request.Request(f"{host}{path}?{query}", headers={
+            "User-Agent": BROWSER_UA, "Accept": "application/json,text/plain,*/*"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                obj = json.loads(r.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise NoSymbol(symbol)
+            last = f"HTTP {e.code}"
+            continue
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            last = str(e)
+            continue
+        chart = obj.get("chart") or {}
+        res = (chart.get("result") or [None])[0]
+        if res:
+            return res
+        err = chart.get("error") or {}
+        if "not found" in str(err.get("code", "")).lower():
+            raise NoSymbol(symbol)
+        last = str(err.get("description") or "빈 응답")
+    raise RuntimeError(f"{symbol}: {last}")
+
+
+def _num(v, nd=4):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return round(f, nd)
+
+
+def _thin_idx(n, keep):
+    """0..n-1 중 keep 개 안팎을 고르되 처음과 마지막은 꼭 포함."""
+    if n <= keep:
+        return list(range(n))
+    step = (n - 1) / (keep - 1)
+    return sorted({round(i * step) for i in range(keep)})
+
+
+def parse_quote(res, max_points=120):
+    meta = res.get("meta") or {}
+    q = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    ts = res.get("timestamp") or []
+    pts = [(t, c) for t, c in zip(ts, q.get("close") or []) if c is not None and t is not None]
+    highs = [h for h in (q.get("high") or []) if h is not None]
+    lows = [x for x in (q.get("low") or []) if x is not None]
+    price = _num(meta.get("regularMarketPrice"))
+    if price is None and pts:
+        price = _num(pts[-1][1])
+    prev = _num(meta.get("previousClose")) or _num(meta.get("chartPreviousClose"))
+    reg = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+    pts = [pts[i] for i in _thin_idx(len(pts), max_points)]
+    ok = price is not None and prev
+    return {
+        "price": price, "prev": prev,
+        "chg": round(price - prev, 4) if ok else None,
+        "pct": round((price - prev) / prev * 100, 2) if ok else None,
+        "high": _num(meta.get("regularMarketDayHigh")) or (_num(max(highs)) if highs else None),
+        "low": _num(meta.get("regularMarketDayLow")) or (_num(min(lows)) if lows else None),
+        "vol": int(meta.get("regularMarketVolume") or 0) or None,
+        "time": int(meta.get("regularMarketTime") or 0) or None,
+        "session": [int(reg.get("start") or 0), int(reg.get("end") or 0)],
+        "gmt": int(meta.get("gmtoffset") or 0),
+        "currency": meta.get("currency") or "",
+        "it": [int(t) for t, _ in pts], "iv": [_num(c) for _, c in pts],
+    }
+
+
+def _day(epoch, gmt):
+    return int(datetime.fromtimestamp(epoch + gmt, timezone.utc).strftime("%Y%m%d"))
+
+
+def parse_daily(res):
+    meta = res.get("meta") or {}
+    gmt = int(meta.get("gmtoffset") or 0)
+    q = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    ts = res.get("timestamp") or []
+    cl, hi, lo, vo = (q.get(k) or [] for k in ("close", "high", "low", "volume"))
+    rows = {}
+    for i, t in enumerate(ts):
+        c = cl[i] if i < len(cl) else None
+        if t is None or c is None:
+            continue
+        h = hi[i] if i < len(hi) and hi[i] is not None else c
+        lw = lo[i] if i < len(lo) and lo[i] is not None else c
+        v = vo[i] if i < len(vo) and vo[i] is not None else 0
+        rows[_day(t, gmt)] = (_num(c), _num(h), _num(lw), int(v))  # 같은 날짜는 마지막 값
+    days = sorted(rows)[-260:]
+    full = days[:-1] if days else []  # 마지막 날은 장중일 수 있어 평균 거래량에서 뺌
+    vols = [rows[d][3] for d in full[-20:] if rows[d][3]]
+    return {"gmt": gmt, "d": days, "c": [rows[d][0] for d in days],
+            "hi52": max((rows[d][1] for d in days[-252:]), default=None),
+            "lo52": min((rows[d][2] for d in days[-252:]), default=None),
+            "vol20": int(sum(vols) / len(vols)) if vols else None}
+
+
+def merged_closes(h, q):
+    """일봉 종가에 오늘 시세를 붙이거나(새 날) 바꿔 끼운(같은 날) 날짜·종가 목록."""
+    days, closes = list(h.get("d", [])), list(h.get("c", []))
+    if q and q.get("price") is not None and q.get("time"):
+        today = _day(q["time"], q.get("gmt", h.get("gmt", 0)))
+        if days and days[-1] == today:
+            closes[-1] = q["price"]
+        elif not days or today > days[-1]:
+            days.append(today)
+            closes.append(q["price"])
+    return days, closes
+
+
+def _sma(xs, n):
+    return round(sum(xs[-n:]) / n, 4) if len(xs) >= n else None
+
+
+def _ema(xs, n):
+    k, e, out = 2 / (n + 1), None, []
+    for x in xs:
+        e = x if e is None else x * k + e * (1 - k)
+        out.append(e)
+    return out
+
+
+def _rsi(xs, n=14):
+    if len(xs) <= n:
+        return None
+    d = [b - a for a, b in zip(xs, xs[1:])]
+    ag = sum(max(x, 0) for x in d[:n]) / n
+    al = sum(max(-x, 0) for x in d[:n]) / n
+    for x in d[n:]:
+        ag = (ag * (n - 1) + max(x, 0)) / n
+        al = (al * (n - 1) + max(-x, 0)) / n
+    if al == 0:
+        return 100.0 if ag > 0 else 50.0
+    return round(100 - 100 / (1 + ag / al), 1)
+
+
+def indicators(closes):
+    """이동평균·RSI·MACD 와 이를 묶은 흐름 점수(-100~100). 매매 권유가 아니라 지표 요약이에요."""
+    if len(closes) < 2:
+        return {}
+    price = closes[-1]
+    out = {"ma5": _sma(closes, 5), "ma20": _sma(closes, 20), "ma60": _sma(closes, 60),
+           "rsi": _rsi(closes)}
+    if len(closes) >= 35:
+        line = [a - b for a, b in zip(_ema(closes, 12), _ema(closes, 26))]
+        sig = _ema(line, 9)
+        out.update(macd=round(line[-1], 4), macd_sig=round(sig[-1], 4), macd_hist=round(line[-1] - sig[-1], 4))
+    parts, tags = [], []
+    ma5, ma20, ma60, rsi, hist = out["ma5"], out["ma20"], out["ma60"], out["rsi"], out.get("macd_hist")
+    if ma20:
+        parts.append(1 if price >= ma20 else -1)
+        tags.append("20일선 위" if price >= ma20 else "20일선 아래")
+    if ma20 and ma60:
+        parts.append(1 if ma20 >= ma60 else -1)
+    if ma5 and ma20 and ma60:
+        if ma5 > ma20 > ma60:
+            tags.append("정배열")
+        elif ma5 < ma20 < ma60:
+            tags.append("역배열")
+    if hist is not None:
+        parts.append(1 if hist > 0 else -1)
+        tags.append("MACD 상승 흐름" if hist > 0 else "MACD 하락 흐름")
+    if rsi is not None:
+        parts.append(max(-1.0, min(1.0, (rsi - 50) / 20)))
+        if rsi >= 70:
+            tags.append("RSI 과열권")
+        elif rsi <= 30:
+            tags.append("RSI 침체권")
+    if parts:
+        out["score"] = int(round(sum(parts) / 4 * 100))
+    out["tags"] = tags
+    return out
+
+
+def market_targets(cfg):
+    mk = cfg.get("market", {})
+    out = [{"kind": "index", "name": ix["name"], "symbol": ix["symbol"], "group": ix.get("group", "")}
+           for ix in mk.get("indices", [])]
+    for c in cfg.get("dart", {}).get("companies", []):
+        out.append({"kind": "stock", "name": c.get("name"), "code": c["stock_code"],
+                    "held": is_held(c), "symbol": c.get("yahoo", "")})
+    return out
+
+
+def _rounder(e, q):
+    """원화 종목은 정수, 그 밖에는 소수 둘째(10 미만은 셋째) 자리까지."""
+    if e.get("code") and q.get("currency") == "KRW":
+        nd = 0
+    else:
+        nd = 2 if abs(q.get("price") or 0) >= 10 else 3
+
+    def r(v):
+        if v is None:
+            return None
+        v = round(v, nd)
+        return int(v) if nd == 0 else v
+    return r
+
+
+def market_entry(tgt, cache):
+    sym = tgt.get("symbol") or cache.get("sym", {}).get(tgt.get("code", ""), "")
+    e = {k: tgt[k] for k in ("name", "group", "code", "held") if k in tgt}
+    e["symbol"] = sym
+    q, h = cache.get("q", {}).get(sym), cache.get("h", {}).get(sym)
+    if not q:
+        e["missing"] = True
+        return e
+    r = _rounder(e, q)
+    for k in ("price", "prev", "chg", "high", "low"):
+        e[k] = r(q.get(k))
+    e["pct"], e["vol"], e["time"], e["currency"] = q.get("pct"), q.get("vol"), q.get("time"), q.get("currency")
+    s0, s1 = q.get("session", [0, 0])
+    e["open"] = bool(s0 and s0 <= time.time() <= s1)
+    if s0 and s1:
+        e["ses"] = [s0, s1]
+    it = q.get("it") or []
+    if it:  # 장중 5분봉: 첫 시각 + 분 단위 차이
+        e["t0"] = it[0]
+        e["tm"] = [(t - it[0]) // 60 for t in it]
+        e["iv"] = [r(v) for v in q.get("iv", [])]
+    if h:
+        days, closes = merged_closes(h, q)
+        ind = indicators(closes)
+        if ind:
+            for k in ("ma5", "ma20", "ma60", "macd", "macd_sig", "macd_hist"):
+                if ind.get(k) is not None:
+                    ind[k] = r(ind[k]) if k in ("ma5", "ma20", "ma60") else round(ind[k], 3)
+            e["ind"] = ind
+        hi = [x for x in (h.get("hi52"), q.get("high"), q.get("price")) if x is not None]
+        lo = [x for x in (h.get("lo52"), q.get("low"), q.get("price")) if x is not None]
+        e["hi52"], e["lo52"], e["vol20"] = r(max(hi) if hi else None), r(min(lo) if lo else None), h.get("vol20")
+        # 1년 일봉: 최근 63일(3개월)은 그대로, 그 앞은 사흘에 하나. 날짜는 첫날 + 경과 일수
+        cut = max(0, len(days) - 63)
+        idx = list(range(0, cut, 3)) + list(range(cut, len(days)))
+        if idx:
+            d0 = datetime.strptime(str(days[idx[0]]), "%Y%m%d")
+            e["d0"] = days[idx[0]]
+            e["dd"] = [(datetime.strptime(str(days[i]), "%Y%m%d") - d0).days for i in idx]
+            e["dv"] = [r(closes[i]) for i in idx]
+    return e
+
 # ---------------------------------------------------------------- 상태 관리
 def update_status(state, source, ok, message, alerts):
     """소스별 정상/오류 상태 기록. 오래 실패하면 경고, 회복되면 복구 알림. 바뀌었으면 True."""
@@ -632,6 +925,7 @@ def update_status(state, source, ok, message, alerts):
                 "g2b": "\n\n키를 막 발급받았다면 몇 시간 기다려 보세요. 계속되면 README의 '문제 해결'을 확인하세요.",
                 "github": "\n\nGitHub 토큰이 만료됐거나 권한이 바뀌었을 수 있어요. `radar setup` 으로 토큰을 다시 넣으세요.",
                 "dart": "\n\n휴대폰의 인터넷 연결이나 OpenDART 인증키를 확인하세요.",
+                "market": "\n\nYahoo 시세 서버가 막혔거나 휴대폰 인터넷 문제일 수 있어요. 공시·입찰 알림은 그대로 동작해요.",
             }.get(source, "")
             alerts.append(system_embed(f"⚠️ {label} 실패가 계속되고 있어요", f"{message}{hint}"))
     return changed
@@ -673,7 +967,13 @@ class Radar:
         token = os.environ.get("GITHUB_TOKEN", "").strip()
         repo = os.environ.get("GITHUB_REPO", "").strip()
         self.gh = GitHub(token, repo) if (token and repo and not args.dry_run) else None
-        self.next = {"dart": 0.0, "g2b": 0.0, "cfg": 0.0}
+        self.next = {"dart": 0.0, "g2b": 0.0, "cfg": 0.0, "market": 0.0}
+        self.mcache = load_json(MARKET_CACHE_PATH, {}) or {}
+        self.saved_mcache_text = None
+        self.market_text = None
+        self.uploaded_market_text = None
+        self.last_market_upload = 0.0
+        self.market_upload_err = None
         self.last_data_upload = 0.0
         self.last_alive_upload = 0.0
         self.upload_backoff_until = 0.0
@@ -734,6 +1034,116 @@ class Radar:
                                    "\n".join(changes + [""] if changes else []) +
                                    f"보유 {held}개 · 미보유 {unheld}개 · 일정 {len(remote.get('events', []))}개"))
         self.next["dart"] = 0.0  # 바로 다시 확인
+        self.next["market"] = 0.0
+
+    @property
+    def mcfg(self):
+        m = dict(DEFAULT_MARKET)
+        m.update(self.cfg.get("market", {}))
+        return m
+
+    # --- 시세
+    def market_tick(self, ts, alerts):
+        """지수·종목 시세를 필요한 것만 받아 market.json 내용을 만듭니다. 상태가 바뀌었으면 True."""
+        m = self.mcfg
+        if not m.get("enabled", True):
+            self.market_text = None
+            return update_status(self.state, "market", None, "꺼짐 (config.json)", alerts)
+        if ts < self.next["market"]:
+            return False
+        cache = self.mcache
+        for k in ("sym", "q", "h", "hfail"):
+            cache.setdefault(k, {})
+        open_s, closed_s = float(m["open_seconds"]), float(m["closed_minutes"]) * 60
+        hist_s = float(m["history_hours"]) * 3600
+
+        def gap(sym):
+            q = cache["q"].get(sym) or {}
+            s0, s1 = q.get("session") or [0, 0]
+            is_open = bool(s0) and s0 - 600 <= ts <= s1 + 900  # 개장 10분 전 ~ 마감 15분 뒤
+            return open_s if is_open else closed_s
+
+        targets = market_targets(self.cfg)
+        due = ok = fails = 0
+        errors, missing = {}, []
+        for tgt in targets:
+            if fails >= 3:  # 연속 실패 → 이번 회차는 그만 (네트워크 문제일 가능성)
+                break
+            sym = tgt.get("symbol")
+            try:
+                if tgt["kind"] == "stock" and not sym:
+                    sym = cache["sym"].get(tgt["code"])
+                    if sym is None:  # .KS(코스피) → .KQ(코스닥) 순서로 찾아 기억
+                        due += 1
+                        for cand in (tgt["code"] + ".KS", tgt["code"] + ".KQ"):
+                            try:
+                                res = yahoo_chart(cand, "1d", "5m")
+                            except NoSymbol:
+                                time.sleep(0.25)
+                                continue
+                            cache["sym"][tgt["code"]] = sym = cand
+                            cache["q"][cand] = dict(parse_quote(res, 80), at=ts)
+                            ok += 1
+                            break
+                        else:
+                            cache["sym"][tgt["code"]] = sym = ""
+                        fails = 0
+                    if not sym:
+                        missing.append(tgt["name"])
+                        continue
+                q = cache["q"].get(sym)
+                if not q or ts - q.get("at", 0) >= gap(sym):
+                    due += 1
+                    res = yahoo_chart(sym, "1d", "5m")
+                    cache["q"][sym] = dict(parse_quote(res, 120 if tgt["kind"] == "index" else 80), at=ts)
+                    ok += 1
+                    fails = 0
+                    time.sleep(0.25)
+                h = cache["h"].get(sym)
+                if (not h or ts - h.get("at", 0) >= hist_s) and ts - cache["hfail"].get(sym, 0) >= 1800:
+                    try:
+                        cache["h"][sym] = dict(parse_daily(yahoo_chart(sym, "1y", "1d")), at=ts)
+                    except Exception:  # noqa: BLE001 - 일봉은 다음에 다시
+                        cache["hfail"][sym] = ts
+                    time.sleep(0.25)
+            except NoSymbol:
+                errors[tgt["name"]] = "종목을 찾지 못함"
+            except Exception as e:  # noqa: BLE001
+                errors[tgt["name"]] = _trim(str(e), 120)
+                fails += 1
+
+        # 다음 확인 시각: 가장 먼저 다시 받아야 할 종목 기준
+        nxt = [cache["q"][s].get("at", 0) + gap(s) for s in
+               {t.get("symbol") or cache["sym"].get(t.get("code"), "") for t in targets} if s in cache["q"]]
+        self.next["market"] = ts + 300 if fails >= 3 else max(ts + 30, min(nxt) if nxt else ts + closed_s)
+
+        mtext = dumps(cache)
+        if mtext != self.saved_mcache_text and not self.args.dry_run:
+            save_text(MARKET_CACHE_PATH, mtext)
+        self.saved_mcache_text = mtext
+
+        stamps = [q.get("at", 0) for q in cache["q"].values()]
+        payload = {"updated_at": datetime.fromtimestamp(max(stamps), KST).isoformat(timespec="seconds") if stamps else "",
+                   "source": "Yahoo Finance (지연될 수 있음)",
+                   "indices": [market_entry(x, cache) for x in targets if x["kind"] == "index"],
+                   "stocks": [market_entry(x, cache) for x in targets if x["kind"] == "stock"]}
+        if missing:
+            payload["missing"] = missing
+        self.market_text = dumps(payload)
+
+        n_ix = sum(1 for x in payload["indices"] if not x.get("missing"))
+        n_st = sum(1 for x in payload["stocks"] if not x.get("missing"))
+        if self.market_upload_err:
+            return update_status(self.state, "market", False, "시세 업로드 실패: " + self.market_upload_err, alerts)
+        if due and not ok and errors:
+            return update_status(self.state, "market", False, "시세를 받지 못했어요: " +
+                                 _trim("; ".join(f"{k} {v}" for k, v in errors.items()), 250), alerts)
+        msg = f"정상 · 지수 {n_ix}개 · 종목 {n_st}개"
+        if missing:
+            msg += " · 시세 없는 종목: " + ", ".join(missing)
+        if errors:
+            msg += " · 이번에 못 받은 것: " + ", ".join(errors)
+        return update_status(self.state, "market", True, msg, alerts)
 
     # --- 한 번 확인
     def tick(self):
@@ -819,6 +1229,13 @@ class Radar:
                     status_changed |= update_status(state, "g2b", False, _trim(str(e), 300), alerts)
             self.next["g2b"] = ts + wait
 
+        # 2.5) 시세
+        try:
+            status_changed |= self.market_tick(ts, alerts)
+        except Exception as e:  # noqa: BLE001 - 시세 문제로 공시 알림이 멈추면 안 돼요
+            log(f"시세 오류: {e!r}")
+            self.next["market"] = ts + 300
+
         # 3) 일정
         reminders = due_reminders(cfg, state)
 
@@ -880,6 +1297,10 @@ class Radar:
                              for c in cfg.get("dart", {}).get("companies", [])]
         data["schedule_text"] = schedule_text(self.sched)
         data["device"] = cfg.get("device_name", "")
+        if self.gh and self.mcfg.get("enabled", True):
+            data["market_url"] = f"https://raw.githubusercontent.com/{self.gh.repo}/{MARKET_BRANCH}/{MARKET_FILE}"
+        else:
+            data.pop("market_url", None)
         data["status"] = {k: {"state": v.get("state"), "message": v.get("message", ""),
                               "since": v.get("since", "")}
                           for k, v in state.get("status", {}).items()}
@@ -926,6 +1347,17 @@ class Radar:
             update_status(self.state, "github", False, _trim(str(e), 300), alerts)
         if alerts:
             self.state["pending"] = (self.state.get("pending", []) + alerts)[-PENDING_MAX:]
+        # 시세는 따로: 실패해도 공시 데이터·생존 신호 업로드는 막지 않아요
+        if (self.market_text and self.market_text != self.uploaded_market_text and ts >= self.upload_backoff_until
+                and ts - self.last_market_upload >= float(self.mcfg["upload_seconds"])):
+            try:
+                self.gh.publish_branch(MARKET_BRANCH, {MARKET_FILE: self.market_text}, f"시세 {t:%m-%d %H:%M}")
+                self.uploaded_market_text = self.market_text
+                self.market_upload_err = None
+            except Exception as e:  # noqa: BLE001
+                log(f"시세 업로드 오류 (5분 뒤 다시 시도): {e}")
+                self.market_upload_err = _trim(str(e), 200)
+            self.last_market_upload = ts if not self.market_upload_err else ts + 180
 
     def flush(self):
         pending = self.state.get("pending", [])
@@ -953,10 +1385,14 @@ class Radar:
     def seconds_until_next(self):
         ts = time.time()
         nxt = min(self.next["dart"], self.next["g2b"])
+        if self.mcfg.get("enabled", True):
+            nxt = min(nxt, self.next["market"])
         if self.gh:
             up = self.last_alive_upload + self.sched["alive_minutes"] * 60
             if self.saved_data_text != self.uploaded_data_text:
                 up = min(up, self.last_data_upload + self.sched["upload_min_seconds"])
+            if self.market_text and self.market_text != self.uploaded_market_text:
+                up = min(up, self.last_market_upload + float(self.mcfg["upload_seconds"]))
             nxt = min(nxt, self.next["cfg"], max(up, self.upload_backoff_until))
         if self.state.get("pending"):
             nxt = min(nxt, ts + 60)
