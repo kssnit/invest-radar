@@ -16,7 +16,8 @@
   "g2b_slow_seconds": 1800,
   "upload_min_seconds": 60,
   "alive_minutes": 20,
-  "config_sync_minutes": 10
+  "config_sync_minutes": 10,
+  "dart_unheld_every": 3
  },
 
  "discord": {
@@ -27,18 +28,20 @@
  "dart": {
   "enabled": true,
   "lookback_days": 3,
+  "alert_held": "all",
+  "alert_unheld": "keywords",
   "companies": [
-   {"name": "한화시스템", "stock_code": "272210"},
-   {"name": "LIG D&A", "stock_code": "079550"},
-   {"name": "한화에어로스페이스", "stock_code": "012450"},
-   {"name": "한화솔루션", "stock_code": "009830"},
-   {"name": "삼성전자", "stock_code": "005930"},
-   {"name": "현대차", "stock_code": "005380"},
-   {"name": "대한광통신", "stock_code": "010170"},
-   {"name": "클로봇", "stock_code": "466100"},
-   {"name": "현대무벡스", "stock_code": "319400"},
-   {"name": "카카오", "stock_code": "035720"},
-   {"name": "대한항공", "stock_code": "003490"}
+   {"name": "한화시스템", "stock_code": "272210", "held": true},
+   {"name": "LIG D&A", "stock_code": "079550", "held": true},
+   {"name": "한화솔루션", "stock_code": "009830", "held": true},
+   {"name": "삼성전자", "stock_code": "005930", "held": true},
+   {"name": "현대차", "stock_code": "005380", "held": true},
+   {"name": "대한광통신", "stock_code": "010170", "held": true},
+   {"name": "클로봇", "stock_code": "466100", "held": true},
+   {"name": "현대무벡스", "stock_code": "319400", "held": true},
+   {"name": "카카오", "stock_code": "035720", "held": true},
+   {"name": "대한항공", "stock_code": "003490", "held": true},
+   {"name": "한화에어로스페이스", "stock_code": "012450", "held": false}
   ],
   "danger_keywords": [
    "유상증자", "전환사채", "신주인수권부사채", "교환사채", "감자결정",
