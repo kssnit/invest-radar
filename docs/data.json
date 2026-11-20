@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-20T16:01:03+09:00",
+ "saved_at": "2026-11-20T20:24:53+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -18,9 +18,9 @@
    "since": ""
   },
   "market": {
-   "state": "ok",
-   "message": "정상 · 지수 11개 · 종목 21개",
-   "since": ""
+   "state": "fail",
+   "message": "시세 업로드 실패: GitHub 커밋 생성 실패 HTTP 500: ",
+   "since": "2026-11-20T20:24+09:00"
   }
  },
  "dart": [
