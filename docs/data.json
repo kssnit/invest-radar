@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-20T15:40:03+09:00",
+ "saved_at": "2026-11-20T16:01:03+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -35,6 +35,18 @@
    "level": "info",
    "held": true,
    "first_seen": "2026-11-20T15:40:03+09:00"
+  },
+  {
+   "id": "20261120000501",
+   "corp": "한화에어로스페이스",
+   "stock_code": "012450",
+   "title": "자기주식취득결과보고서",
+   "date": "2026-11-20",
+   "filer": "한화에어로스페이스",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261120000501",
+   "level": "good",
+   "held": false,
+   "first_seen": "2026-11-20T16:01:03+09:00"
   },
   {
    "id": "20261119000011",
