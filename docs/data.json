@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-20T05:35:37+09:00",
+ "saved_at": "2026-11-20T10:39:15+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -8,9 +8,9 @@
    "since": ""
   },
   "g2b": {
-   "state": "ok",
-   "message": "정상",
-   "since": ""
+   "state": "fail",
+   "message": "HTTP Error 500: Internal Server Error",
+   "since": "2026-11-20T10:39+09:00"
   },
   "github": {
    "state": "ok",
