@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# 투자 레이더 관리 명령어:  radar [start|stop|restart|status|log|setup|update]
+# 투자 레이더 관리 명령어:  radar [start|stop|restart|status|log|setup|update|kakao]
 
 DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 LOG="$DIR/logs/bot.log"
@@ -46,6 +46,14 @@ case "${1:-status}" in
   setup)
     bash "$DIR/termux/install.sh"
     ;;
+  kakao)
+    cd "$DIR" || exit 1
+    case "${2:-}" in
+      test) python monitor.py --kakao-test ;;
+      reset) python monitor.py --kakao-reset && "$0" restart ;;
+      *) python monitor.py --kakao-setup && "$0" restart ;;
+    esac
+    ;;
   update)
     REPO="$(grep -E '^GITHUB_REPO=' "$DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r" ')"
     if [ -z "$REPO" ]; then echo ".env 에 GITHUB_REPO 가 없어요. (radar setup)"; exit 1; fi
@@ -78,6 +86,6 @@ PY
     "$0" restart
     ;;
   *)
-    echo "사용법: radar [start|stop|restart|status|log|setup|update]"
+    echo "사용법: radar [start|stop|restart|status|log|setup|update|kakao]"
     ;;
 esac

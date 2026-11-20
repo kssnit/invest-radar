@@ -22,6 +22,7 @@ import email.utils
 import hashlib
 import io
 import json
+import re
 import os
 import signal
 import sys
@@ -38,7 +39,7 @@ try:
 except ImportError:  # 윈도우
     fcntl = None
 
-VERSION = "2.6-phone"
+VERSION = "2.7-phone"
 KST = timezone(timedelta(hours=9))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.json")
@@ -49,6 +50,12 @@ ALIVE_PATH = os.path.join(ROOT, "docs", "alive.json")
 LOG_PATH = os.path.join(ROOT, "logs", "bot.log")
 ENV_PATH = os.path.join(ROOT, ".env")
 MARKET_CACHE_PATH = os.path.join(ROOT, "state", "market_cache.json")
+KAKAO_TOKEN_PATH = os.path.join(ROOT, "state", "kakao_token.json")  # 휴대폰에만 저장 (GitHub 에 안 올려요)
+KAKAO_AUTH = "https://kauth.kakao.com/oauth"
+KAKAO_MEMO = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+KAKAO_SEND = ("all", "alerts", "important", "none")
+KAKAO_DOMAINS = ["https://dart.fss.or.kr", "https://news.google.com", "https://www.g2b.go.kr"]
+KAKAO_PENDING_MAX = 40
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 DART_CORP_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
@@ -181,8 +188,11 @@ def validate_config(cfg):
     mk = cfg.get("market", {})
     if not isinstance(mk, dict) or not isinstance(mk.get("indices", []), list):
         return "market.indices 가 목록이 아님"
-    if mk.get("news_discord", "none") not in ALERT_LEVELS:
-        return f"market.news_discord 는 all / keywords / none 중 하나여야 해요: {mk.get('news_discord')}"
+    kk = cfg.get("kakao", {})
+    if not isinstance(kk, dict) or kk.get("send", "alerts") not in KAKAO_SEND:
+        return f"kakao.send 는 {' / '.join(KAKAO_SEND)} 중 하나여야 해요: {kk.get('send') if isinstance(kk, dict) else kk}"
+    if mk.get("news_alert", "keywords") not in ("keywords", "none"):
+        return f"market.news_alert 는 keywords / none 중 하나여야 해요: {mk.get('news_alert')}"
     for ix in mk.get("indices", []):
         if not isinstance(ix, dict) or not (ix.get("code") or ix.get("symbol")) or not ix.get("name"):
             return f"market.indices 항목에는 name 과 symbol 이 있어야 해요: {ix}"
@@ -644,6 +654,135 @@ def send_embeds(webhook, cfg, embeds, content="", dry_run=False):
     return sent
 
 
+# ---------------------------------------------------------------- 카카오톡 (나에게 보내기)
+# 카카오 디벨로퍼스 앱의 REST API 키로 '나와의 채팅'에 알림을 남겨요. 키·토큰은 휴대폰 .env / state 에만 있어요.
+class KakaoAuthError(RuntimeError):
+    """다시 연결(radar kakao)해야 하는 오류"""
+
+
+def _plain(text):
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", str(text or ""))
+    return re.sub(r"[*`_]{1,2}", "", text).strip()
+
+
+def dashboard_url(repo):
+    if repo and "/" in repo:
+        owner, name = repo.split("/", 1)
+        return f"https://{owner.lower()}.github.io/{name}/"
+    return ""
+
+
+def embed_to_kakao(e, dash, domains):
+    lines = [_plain(e.get("title"))]
+    if e.get("description"):
+        lines.append(_plain(e["description"]))
+    for f in (e.get("fields") or [])[:3]:
+        lines.append(f"{_plain(f.get('name'))}: {_plain(f.get('value'))}")
+    text = _trim("\n".join(x for x in lines if x), 200)
+    url = str(e.get("url") or "")
+    ok = url.startswith("https://") and any(url == d or url.startswith(d.rstrip("/") + "/") for d in domains)
+    return {"text": text, "url": url if ok else dash, "button": "원문 보기" if ok else "대시보드 열기"}
+
+
+def kakao_wanted(e, mode):
+    """보낼 알림 고르기: all 전부 / alerts 시스템 메시지 빼고 / important 주의·호재·입찰만"""
+    if mode == "all":
+        return True
+    if mode == "none":
+        return False
+    color = e.get("color")
+    if mode == "important":
+        return color in (COLOR["danger"], COLOR["good"], COLOR["g2b"])
+    return color != COLOR["system"]
+
+
+class Kakao:
+    def __init__(self, rest_key, secret="", redirect=""):
+        self.key, self.secret, self.redirect = rest_key, secret, redirect
+
+    @staticmethod
+    def linked():
+        data = load_json(KAKAO_TOKEN_PATH, {}) or {}
+        return bool(data.get("refresh_token")) and not data.get("broken")
+
+    @staticmethod
+    def mark_broken(reason):
+        data = load_json(KAKAO_TOKEN_PATH, {}) or {}
+        if data:
+            data["broken"] = _trim(reason, 300)
+            save_text(KAKAO_TOKEN_PATH, dumps(data))
+
+    def _post(self, url, fields, token=None, timeout=20):
+        body = urllib.parse.urlencode(fields).encode("utf-8")
+        headers = {"Content-Type": "application/x-www-form-urlencoded;charset=utf-8", "User-Agent": USER_AGENT}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            raw = e.read()[:400].decode("utf-8", "replace")
+            try:
+                info = json.loads(raw)
+            except ValueError:
+                info = {"msg": raw}
+            err = RuntimeError(f"카카오 HTTP {e.code}: {info.get('error_description') or info.get('msg') or raw}")
+            err.code, err.info = e.code, info
+            raise err
+
+    def auth_url(self):
+        q = {"client_id": self.key, "redirect_uri": self.redirect, "response_type": "code", "scope": "talk_message"}
+        return f"{KAKAO_AUTH}/authorize?" + urllib.parse.urlencode(q)
+
+    def _save(self, tok, old=None):
+        t = time.time()
+        data = dict(old or {})
+        data["access_token"] = tok["access_token"]
+        data["expires_at"] = int(t + int(tok.get("expires_in", 21599)) - 120)
+        if tok.get("refresh_token"):
+            data["refresh_token"] = tok["refresh_token"]
+            data["refresh_expires_at"] = int(t + int(tok.get("refresh_token_expires_in", 5183999)))
+        save_text(KAKAO_TOKEN_PATH, dumps(data))
+        return data
+
+    def exchange(self, code):
+        f = {"grant_type": "authorization_code", "client_id": self.key, "redirect_uri": self.redirect, "code": code}
+        if self.secret:
+            f["client_secret"] = self.secret
+        return self._save(self._post(f"{KAKAO_AUTH}/token", f))
+
+    def token(self, force=False):
+        data = load_json(KAKAO_TOKEN_PATH, {}) or {}
+        if not data.get("refresh_token"):
+            raise KakaoAuthError("카카오 연결 정보가 없어요")
+        if not force and data.get("access_token") and time.time() < data.get("expires_at", 0):
+            return data["access_token"]
+        f = {"grant_type": "refresh_token", "client_id": self.key, "refresh_token": data["refresh_token"]}
+        if self.secret:
+            f["client_secret"] = self.secret
+        try:
+            return self._save(self._post(f"{KAKAO_AUTH}/token", f), data)["access_token"]
+        except RuntimeError as e:
+            if getattr(e, "code", 0) in (400, 401):
+                raise KakaoAuthError(f"카카오 로그인이 만료됐어요 ({e})") from e
+            raise
+
+    def send(self, text, url, button="대시보드 열기"):
+        tpl = {"object_type": "text", "text": _trim(text, 200),
+               "link": {"web_url": url, "mobile_web_url": url}, "button_title": button}
+        fields = {"template_object": json.dumps(tpl, ensure_ascii=False)}
+        try:
+            return self._post(KAKAO_MEMO, fields, self.token())
+        except RuntimeError as e:
+            code = getattr(e, "code", 0)
+            if code == 401:  # 액세스 토큰 만료 → 한 번 새로 받아서 다시
+                return self._post(KAKAO_MEMO, fields, self.token(force=True))
+            if code == 403 or (getattr(e, "info", {}) or {}).get("code") in (-3, -402):
+                raise KakaoAuthError(f"메시지 전송 권한이 없어요. 동의항목(카카오톡 메시지 전송)을 확인하세요 ({e})") from e
+            raise
+
+
 # ---------------------------------------------------------------- 시세 (네이버 증권, 키 필요 없음)
 # 국내 종목·지수 / 미국 지수 / 환율·유가·금·국채를 네이버 증권의 공개 JSON 에서 받아요.
 # (Yahoo 는 2025년부터 브라우저가 아닌 프로그램 요청을 429 로 막아서 쓰지 않아요.)
@@ -662,7 +801,8 @@ DEFAULT_NEWS_GOOD = ["급등", "상승", "신고가", "최고가", "호실적", 
 DEFAULT_NEWS_BAD = ["급락", "하락", "신저가", "폭락", "소송", "리콜", "조사", "제재", "적자", "어닝 쇼크", "목표가 하향",
                     "목표주가 하향", "감원", "해고", "규제", "벌금", "배당 삭감"]
 DEFAULT_MARKET = {"enabled": True, "open_seconds": 120, "closed_minutes": 30, "history_hours": 6,
-                  "news_minutes": 30, "news_types": ["us", "etf"], "news_discord": "none",
+                  "news_minutes": 30, "news_types": ["stock", "etf", "us"], "news_alert": "keywords",
+                  "news_alert_pct": 5, "news_alert_cooldown_hours": 3, "news_alert_daily_max": 4,
                   "intraday_minutes": 15, "upload_seconds": 120, "indices": []}
 
 
@@ -977,6 +1117,65 @@ def news_level(title, mk):
     return "info"
 
 
+# 디스코드 알림은 대시보드 분류보다 엄격하게: '상승/하락' 같은 흔한 말 대신 강한 표현이나 5% 이상 움직임만
+NEWS_ALERT_GOOD = ["급등", "신고가", "최고가", "호실적", "어닝 서프라이즈", "깜짝 실적", "흑자 전환", "흑자전환",
+                   "목표가 상향", "목표주가 상향", "수주", "공급계약", "계약 체결", "자사주 매입", "자사주 소각",
+                   "배당 인상", "상한가"]
+NEWS_ALERT_BAD = ["급락", "폭락", "신저가", "하한가", "어닝 쇼크", "적자 전환", "적자전환", "목표가 하향",
+                  "목표주가 하향", "소송", "리콜", "제재", "벌금", "압수수색", "횡령", "배임", "거래정지",
+                  "상장폐지", "유상증자", "감원", "해고", "사임", "배당 삭감"]
+_PCT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+_ASCII_TICKER = re.compile(r"^[A-Z0-9&]{1,5}$")
+
+
+def news_alert_level(title, mk):
+    """알림을 보낼 만한 제목이면 danger/good, 아니면 None"""
+    if any(k in title for k in mk.get("news_alert_bad") or NEWS_ALERT_BAD):
+        return "danger"
+    if any(k in title for k in mk.get("news_alert_good") or NEWS_ALERT_GOOD):
+        return "good"
+    lim = float(mk.get("news_alert_pct", 5))
+    if any(float(x) >= lim for x in _PCT.findall(title)):
+        if any(k in title for k in ("하락", "내림", "약세", "빠져", "↓")):
+            return "danger"
+        if any(k in title for k in ("상승", "오름", "강세", "뛰", "↑")):
+            return "good"
+    return None
+
+
+def news_aliases(c):
+    name = str(c.get("name") or "")
+    out = [name, re.sub(r"\(.*?\)", "", name)]
+    if c.get("type") == "us":
+        out.append(str(c.get("stock_code", "")).split(".")[0])
+    out += [str(a) for a in c.get("alias", [])]
+    return [a.strip() for a in out if len(a.replace(" ", "")) >= 2]
+
+
+def news_mentions(title, aliases, exclude=()):
+    """제목에 종목 이름(또는 별칭·티커)이 들어 있나. exclude 단어는 먼저 지우고 봐요 (예: 카카오뱅크)."""
+    t = title
+    for x in exclude:
+        t = t.replace(x, " ")
+    flat = t.replace(" ", "").lower()
+    for a in aliases:
+        if _ASCII_TICKER.match(a):
+            if re.search(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", t):
+                return True
+        elif a.replace(" ", "").lower() in flat:
+            return True
+    return False
+
+
+def embed_news_group(corp, held, level, items):
+    head = items[0]
+    e = embed_news(dict(head, corp=corp, held=held, level=level))
+    if len(items) > 1:
+        more = "\n".join(f"· [{_trim(x['title'], 90)}]({x['url']})" for x in items[1:4])
+        e["description"] = f"비슷한 소식 {len(items) - 1}건 더\n{more}"
+    return e
+
+
 def news_query(c):
     if c.get("news"):
         return c["news"]
@@ -1001,7 +1200,8 @@ def market_targets(cfg):
     for c in cfg.get("dart", {}).get("companies", []):
         kind = "us_stock" if c.get("type") == "us" else "kr_stock"
         out.append({"kind": kind, "code": c["stock_code"], "name": c.get("name"), "held": is_held(c),
-                    "type": c.get("type", "stock"), "exchange": c.get("exchange", ""), "news_q": news_query(c)})
+                    "type": c.get("type", "stock"), "exchange": c.get("exchange", ""), "news_q": news_query(c),
+                    "aliases": news_aliases(c), "news_exclude": list(c.get("news_exclude", []))})
     return out
 
 
@@ -1300,6 +1500,9 @@ class Radar:
         token = os.environ.get("GITHUB_TOKEN", "").strip()
         repo = os.environ.get("GITHUB_REPO", "").strip()
         self.gh = GitHub(token, repo) if (token and repo and not args.dry_run) else None
+        self.dash = dashboard_url(repo)
+        kkey = os.environ.get("KAKAO_REST_KEY", "").strip()
+        self.kakao = Kakao(kkey, os.environ.get("KAKAO_CLIENT_SECRET", "").strip()) if (kkey and not args.dry_run) else None
         self.next = {"dart": 0.0, "g2b": 0.0, "cfg": 0.0, "market": 0.0}
         self.mcache = load_json(MARKET_CACHE_PATH, {}) or {}
         self.saved_mcache_text = None
@@ -1368,6 +1571,17 @@ class Radar:
                                    f"보유 {held}개 · 미보유 {unheld}개 · 일정 {len(remote.get('events', []))}개"))
         self.next["dart"] = 0.0  # 바로 다시 확인
         self.next["market"] = 0.0
+
+    def news_alert_ok(self, code, level, ts, m):
+        """같은 종목·같은 방향 뉴스 알림은 몇 시간에 한 번, 하루 최대 몇 건까지만"""
+        log_ = self.state.setdefault("news_alerts", {})
+        hist = [x for x in log_.get(code, []) if ts - x[0] < 86400]
+        cool = float(m.get("news_alert_cooldown_hours", 3)) * 3600
+        if any(x[1] == level and ts - x[0] < cool for x in hist) or len(hist) >= int(m.get("news_alert_daily_max", 4)):
+            log_[code] = hist
+            return False
+        log_[code] = hist + [[int(ts), level]]
+        return True
 
     @property
     def mcfg(self):
@@ -1532,30 +1746,43 @@ class Radar:
                 log(f"일봉 못 받음 ({t['name']}): {e}")
             time.sleep(0.2)
 
-        # 5) 종목 뉴스 (공시가 없는 미국 주식·ETF, 30분마다)
+        # 5) 종목 뉴스 (30분마다). 알림은 제목에 종목명이 있고 강한 표현일 때만, 종목·방향별 쿨다운
         news = cache.setdefault("news", {})
         nat = cache.setdefault("news_at", {})
         nseen = cache.setdefault("news_seen", {})
         ntypes = m.get("news_types") or []
-        npolicy = ALERT_LEVELS.get(m.get("news_discord", "none"), set())
+        npolicy = ALERT_LEVELS.get(m.get("news_alert", "keywords"), set())  # 예전 news_discord 는 v2.7부터 안 써요
+        nretry = cache.setdefault("news_retry", {})
         news_err = 0
         for t in targets:
-            if t.get("type") not in ntypes or ts - nat.get(t["code"], 0) < float(m["news_minutes"]) * 60:
+            if (t.get("type") not in ntypes or ts - nat.get(t["code"], 0) < float(m["news_minutes"]) * 60
+                    or ts < nretry.get(t["code"], 0)):
                 continue
-            first = t["code"] not in nat
+            first = t["code"] not in nat  # 처음 받는 종목은 기준만 잡고 알림 없음
+            if news_err >= 3:  # 뉴스 서버가 막혔으면 나머지는 10분 뒤에
+                nretry[t["code"]] = ts + 600
+                continue
             try:
                 items = fetch_news(t["news_q"])
                 nat[t["code"]] = ts
+                nretry.pop(t["code"], None)
             except Exception as e:  # noqa: BLE001
-                nat[t["code"]] = ts - float(m["news_minutes"]) * 60 + 600  # 10분 뒤 다시
+                nretry[t["code"]] = ts + 600  # 10분 뒤 다시
                 news_err += 1
                 log(f"뉴스 못 받음 ({t['name']}): {e}")
                 continue
+            fresh = {"danger": [], "good": []}
             for it in items:
                 it["level"] = news_level(it["title"], m)
                 it["first_seen"] = nseen.setdefault(it["id"], int(ts))
-                if not first and it["first_seen"] == int(ts) and it["level"] in npolicy:
-                    alerts.append(embed_news(dict(it, corp=t["name"], held=t.get("held", True))))
+                if first or it["first_seen"] != int(ts) or (it.get("time") and ts - it["time"] > 2 * 86400):
+                    continue
+                lv = news_alert_level(it["title"], m)
+                if lv and lv in npolicy and news_mentions(it["title"], t.get("aliases", []), t.get("news_exclude", [])):
+                    fresh[lv].append(it)
+            for lv, group in fresh.items():
+                if group and self.news_alert_ok(t["code"], lv, ts, m):
+                    alerts.append(embed_news_group(t["name"], t.get("held", True), lv, group))
             news[t["code"]] = items
             time.sleep(0.3)
         for k in [k for k, v in nseen.items() if ts - v > 14 * 86400]:
@@ -1737,7 +1964,7 @@ class Radar:
         if any(x["level"] == "danger" and x.get("held", True) for x in alert_dart):
             state["pending_mention"] = cfg.get("discord", {}).get("mention_on_danger", "") or ""
         if embeds:
-            state["pending"] = (state.get("pending", []) + embeds)[-PENDING_MAX:]
+            self.enqueue(embeds)
         state["initialized"] = True
 
         # 5) 대시보드 데이터
@@ -1804,7 +2031,7 @@ class Radar:
             self.upload_backoff_until = ts + 120
             update_status(self.state, "github", False, _trim(str(e), 300), alerts)
         if alerts:
-            self.state["pending"] = (self.state.get("pending", []) + alerts)[-PENDING_MAX:]
+            self.enqueue(alerts)
         # 시세는 따로: 실패해도 공시 데이터·생존 신호 업로드는 막지 않아요
         if (self.market_text and self.market_text != self.uploaded_market_text and ts >= self.upload_backoff_until
                 and ts - self.last_market_upload >= float(self.mcfg["upload_seconds"])):
@@ -1817,7 +2044,70 @@ class Radar:
                 self.market_upload_err = _trim(str(e), 200)
             self.last_market_upload = ts if not self.market_upload_err else ts + 180
 
+    def enqueue(self, embeds):
+        self.state["pending"] = (self.state.get("pending", []) + embeds)[-PENDING_MAX:]
+        if not self.kakao or not Kakao.linked():
+            return
+        kc = self.cfg.get("kakao", {})
+        mode = kc.get("send", "alerts")
+        domains = list(kc.get("domains") or KAKAO_DOMAINS) + ([self.dash] if self.dash else [])
+        msgs = [embed_to_kakao(e, self.dash, domains) for e in embeds if kakao_wanted(e, mode)]
+        if msgs:
+            self.state["kakao_pending"] = (self.state.get("kakao_pending", []) + msgs)[-KAKAO_PENDING_MAX:]
+
+    def kakao_keepalive(self):
+        """리프레시 토큰(약 2달)이 한 달 안쪽으로 남으면 하루 한 번 새로 받아 연장해요."""
+        data = load_json(KAKAO_TOKEN_PATH, {}) or {}
+        ts = time.time()
+        if data.get("refresh_expires_at", 0) - ts > 25 * 86400 or ts - self.state.get("kakao_keepalive", 0) < 86400:
+            return
+        self.state["kakao_keepalive"] = int(ts)
+        self.kakao.token(force=True)
+
+    def kakao_broken(self, e):
+        Kakao.mark_broken(str(e))
+        log(f"카카오톡 연결 끊김: {e}")
+        self.state["kakao_pending"] = []
+        self.state["pending"] = (self.state.get("pending", []) + [system_embed(
+            "⚠️ 카카오톡 전달이 멈췄어요",
+            f"{e}\nTermux에서 `radar kakao` 로 다시 연결하면 돼요. 디스코드 알림은 그대로 와요.")])[-PENDING_MAX:]
+
+    def flush_kakao(self):
+        if not self.kakao or not Kakao.linked():
+            return
+        try:
+            self.kakao_keepalive()
+        except KakaoAuthError as e:
+            self.kakao_broken(e)
+            return
+        except Exception as e:  # noqa: BLE001
+            log(f"카카오 토큰 연장 실패 (내일 다시): {e}")
+        q = self.state.get("kakao_pending", [])
+        if not q:
+            return
+        if len(q) > 25:  # 한꺼번에 너무 많으면 앞쪽은 요약 한 줄로
+            q = [{"text": f"알림 {len(q) - 10}건이 한꺼번에 와서 앞의 것은 대시보드·디스코드에서 확인해 주세요.",
+                  "url": self.dash, "button": "대시보드 열기"}] + q[-10:]
+        sent = 0
+        try:
+            for msg in q[:15]:
+                self.kakao.send(msg["text"], msg["url"] or self.dash, msg.get("button") or "대시보드 열기")
+                sent += 1
+                time.sleep(0.4)
+        except KakaoAuthError as e:
+            self.kakao_broken(e)
+            return
+        except Exception as e:  # noqa: BLE001 - 네트워크 오류 등은 다음에 다시
+            log(f"카카오톡 전송 실패, 다음에 다시 보낼게요 (남은 {len(q) - sent}건): {e}")
+        if sent:
+            log(f"카카오톡 알림 {sent}건 전송")
+        self.state["kakao_pending"] = q[sent:]
+
     def flush(self):
+        try:
+            self.flush_kakao()
+        except Exception as e:  # noqa: BLE001
+            log(f"카카오톡 처리 오류: {e!r}")
         pending = self.state.get("pending", [])
         if not pending:
             return
@@ -1947,6 +2237,91 @@ def setup_github():
     return 0 if ok else 2
 
 
+def set_env_values(values):
+    """.env 의 KEY=VALUE 를 바꾸거나 덧붙여요 (휴대폰에만 있는 파일)."""
+    lines = []
+    if os.path.exists(ENV_PATH):
+        with open(ENV_PATH, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    for k, v in values.items():
+        row = f"{k}={v}"
+        for i, ln in enumerate(lines):
+            if ln.split("=", 1)[0].strip() == k:
+                lines[i] = row
+                break
+        else:
+            lines.append(row)
+        os.environ[k] = v
+    save_text(ENV_PATH, "\n".join(lines) + "\n")
+    try:
+        os.chmod(ENV_PATH, 0o600)
+    except OSError:
+        pass
+
+
+KOE_HINT = {
+    "KOE006": "리다이렉트 URI가 등록되지 않았어요. [앱] > [플랫폼 키] > [REST API 키]에 아래 주소를 그대로 등록하세요",
+    "KOE004": "카카오 로그인이 꺼져 있어요. [카카오 로그인] > [사용 설정]에서 상태를 ON으로 바꾸세요",
+    "KOE010": "클라이언트 시크릿이 틀렸어요. `radar kakao reset` 으로 키를 다시 넣으세요",
+    "KOE101": "REST API 키가 틀렸어요. `radar kakao reset` 으로 키를 다시 넣으세요",
+    "KOE320": "코드가 만료됐거나 이미 썼어요. `radar kakao` 를 처음부터 다시 해 주세요 (코드는 한 번만, 몇 분 안에 써야 해요)",
+}
+
+
+def setup_kakao(reset=False):
+    key = "" if reset else os.environ.get("KAKAO_REST_KEY", "").strip()
+    secret = "" if reset else os.environ.get("KAKAO_CLIENT_SECRET", "").strip()
+    if not key:
+        print("카카오 디벨로퍼스 > 내 앱 > [앱] > [플랫폼 키] > [REST API 키] 화면의 값을 붙여 넣으세요.")
+        key = input("REST API 키: ").strip()
+        if not key:
+            print("취소했어요.")
+            return 1
+        secret = input("클라이언트 시크릿 (같은 화면, 없으면 그냥 Enter): ").strip()
+        set_env_values({"KAKAO_REST_KEY": key, "KAKAO_CLIENT_SECRET": secret})
+    repo = os.environ.get("GITHUB_REPO", "").strip()
+    redirect = os.environ.get("KAKAO_REDIRECT_URI", "").strip() or (dashboard_url(repo) + "kakao.html" if repo else "")
+    if not redirect.startswith("https://"):
+        print(".env 에 GITHUB_REPO 가 없어서 돌아올 주소를 만들 수 없어요. KAKAO_REDIRECT_URI 를 넣어 주세요.")
+        return 1
+    k = Kakao(key, secret, redirect)
+    url = k.auth_url()
+    print("\n1) 브라우저가 열리면 카카오 로그인 → '카카오톡 메시지 전송'에 동의하세요.")
+    print("   (안 열리면 아래 주소를 길게 눌러 복사해 브라우저에 붙여 넣으세요)\n")
+    print(url + "\n")
+    import shutil
+    import subprocess
+    opener = shutil.which("termux-open-url")
+    if opener:
+        subprocess.run([opener, url], check=False)
+    print("2) 동의하면 '카카오 연결 코드' 화면이 나와요. [코드 복사]를 누르고 여기로 돌아와 붙여 넣으세요.")
+    raw = input("코드: ").strip()
+    if "code=" in raw:
+        raw = (urllib.parse.parse_qs(urllib.parse.urlparse(raw).query).get("code") or [""])[0]
+    if not raw:
+        print("코드가 비어 있어요. 다시 해 주세요.")
+        return 1
+    try:
+        tok = k.exchange(raw)
+    except RuntimeError as e:
+        info = getattr(e, "info", {}) or {}
+        hint = KOE_HINT.get(info.get("error_code", ""), "")
+        print(f"❌ 토큰을 받지 못했어요: {e}" + (f"\n   → {hint}" if hint else ""))
+        if info.get("error_code") == "KOE006":
+            print("   " + redirect)
+        return 1
+    try:
+        k.send("✅ 투자 레이더와 카카오톡을 연결했어요.\n앞으로 디스코드 알림이 '나와의 채팅'에도 남아요.",
+               dashboard_url(repo), "대시보드 열기")
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ 테스트 메시지를 보내지 못했어요: {e}")
+        print("   → [카카오 로그인] > [동의항목]에서 '카카오톡 메시지 전송'을 켜고, `radar kakao` 를 다시 해 주세요.")
+        return 1
+    days = max(0, int((tok.get("refresh_expires_at", 0) - time.time()) / 86400))
+    print(f"✅ 연결 완료! 카카오톡 '나와의 채팅'을 확인하세요. (봇이 쓰는 동안 알아서 연장돼요 · 지금 기준 {days}일)")
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(description="투자 레이더 봇")
     p.add_argument("--loop", action="store_true", help="계속 실행 (휴대폰용)")
@@ -1954,8 +2329,27 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="디스코드·GitHub 로 보내지 않고 파일도 저장하지 않음")
     p.add_argument("--test-discord", action="store_true", help="디스코드 테스트 메시지 전송")
     p.add_argument("--setup-github", action="store_true", help="저장소에 대시보드·설정·감시 파일 올리기")
+    p.add_argument("--kakao-setup", action="store_true", help="카카오톡 '나에게 보내기' 연결")
+    p.add_argument("--kakao-reset", action="store_true", help="카카오 키부터 다시 넣고 연결")
+    p.add_argument("--kakao-test", action="store_true", help="카카오톡 테스트 메시지 보내기")
     args = p.parse_args()
     load_dotenv()
+
+    if args.kakao_setup or args.kakao_reset:
+        return setup_kakao(reset=args.kakao_reset)
+    if args.kakao_test:
+        key = os.environ.get("KAKAO_REST_KEY", "").strip()
+        if not key or not Kakao.linked():
+            print("카카오톡이 아직 연결되지 않았어요. `radar kakao` 로 연결하세요.")
+            return 1
+        try:
+            Kakao(key, os.environ.get("KAKAO_CLIENT_SECRET", "").strip()).send(
+                "🔔 테스트 알림\n카카오톡 연결이 잘 되어 있어요!", dashboard_url(os.environ.get("GITHUB_REPO", "")))
+        except Exception as e:  # noqa: BLE001
+            print(f"❌ {e}")
+            return 1
+        print("✅ 카카오톡 '나와의 채팅'으로 테스트 메시지를 보냈어요.")
+        return 0
 
     if args.test_discord:
         webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()

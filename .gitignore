@@ -2,5 +2,7 @@
 logs/
 state/state.json
 state/bot.lock
+state/kakao_token.json
+state/market_cache.json
 __pycache__/
 *.tmp

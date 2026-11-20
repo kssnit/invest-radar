@@ -25,6 +25,10 @@
   "mention_on_danger": ""
  },
 
+ "kakao": {
+  "send": "alerts"
+ },
+
  "dart": {
   "enabled": true,
   "lookback_days": 3,
@@ -32,26 +36,26 @@
   "alert_unheld": "keywords",
   "companies": [
    {"name": "한화시스템", "stock_code": "272210", "held": true},
-   {"name": "LIG D&A", "stock_code": "079550", "held": true},
+   {"name": "LIG D&A", "stock_code": "079550", "held": true, "alias": ["LIG넥스원"]},
    {"name": "한화솔루션", "stock_code": "009830", "held": true},
    {"name": "삼성전자", "stock_code": "005930", "held": true},
-   {"name": "현대차", "stock_code": "005380", "held": true},
+   {"name": "현대차", "stock_code": "005380", "held": true, "alias": ["현대자동차"]},
    {"name": "대한광통신", "stock_code": "010170", "held": true},
    {"name": "클로봇", "stock_code": "466100", "held": true},
    {"name": "현대무벡스", "stock_code": "319400", "held": true},
-   {"name": "카카오", "stock_code": "035720", "held": true},
+   {"name": "카카오", "stock_code": "035720", "held": true, "news": "카카오 주가", "news_exclude": ["카카오뱅크", "카카오페이", "카카오게임즈", "카카오엔터", "카카오모빌리티", "카카오헬스케어"]},
    {"name": "대한항공", "stock_code": "003490", "held": true},
    {"name": "KODEX 미국S&P500(H)", "stock_code": "449180", "type": "etf", "held": true},
    {"name": "TIGER 미국배당다우존스타겟커버드콜2호", "stock_code": "458760", "type": "etf", "held": true},
    {"name": "KODEX 미국AI전력핵심인프라", "stock_code": "487230", "type": "etf", "held": true},
-   {"name": "엔비디아", "stock_code": "NVDA.O", "type": "us", "held": true},
-   {"name": "테슬라", "stock_code": "TSLA.O", "type": "us", "held": true},
-   {"name": "존슨앤드존슨", "stock_code": "JNJ", "type": "us", "held": true},
-   {"name": "프록터앤드갬블", "stock_code": "PG", "type": "us", "held": true},
+   {"name": "엔비디아", "stock_code": "NVDA.O", "type": "us", "held": true, "alias": ["NVIDIA"]},
+   {"name": "테슬라", "stock_code": "TSLA.O", "type": "us", "held": true, "alias": ["Tesla"]},
+   {"name": "존슨앤드존슨", "stock_code": "JNJ", "type": "us", "held": true, "alias": ["존슨앤존슨", "J&J"]},
+   {"name": "프록터앤드갬블", "stock_code": "PG", "type": "us", "held": true, "alias": ["P&G", "프록터앤갬블"]},
    {"name": "코카콜라", "stock_code": "KO", "type": "us", "held": true},
-   {"name": "한화에어로스페이스", "stock_code": "012450", "held": false},
-   {"name": "스페이스X", "stock_code": "SPCX", "type": "us", "held": false},
-   {"name": "앤트로픽", "stock_code": "ANT", "type": "us", "held": true}
+   {"name": "한화에어로스페이스", "stock_code": "012450", "held": false, "alias": ["한화에어로"]},
+   {"name": "스페이스X", "stock_code": "SPCX", "type": "us", "held": false, "alias": ["SpaceX"]},
+   {"name": "앤트로픽", "stock_code": "ANT", "type": "us", "held": true, "alias": ["Anthropic", "엔트로픽"]}
   ],
   "danger_keywords": [
    "유상증자", "전환사채", "신주인수권부사채", "교환사채", "감자결정",
@@ -72,8 +76,8 @@
   "history_hours": 6,
   "intraday_minutes": 15,
   "news_minutes": 30,
-  "news_types": ["us", "etf"],
-  "news_discord": "none",
+  "news_types": ["stock", "etf", "us"],
+  "news_alert": "keywords",
   "upload_seconds": 120,
   "indices": [
    {"name": "코스피", "symbol": "KOSPI", "kind": "kr_index", "group": "국내"},

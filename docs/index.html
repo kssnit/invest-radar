@@ -1089,7 +1089,7 @@
       if (list.length) {
         var lv = { danger: ["warn", "주의"], good: ["good", "호재"], info: ["", "공시"] }[list[0].level] || ["", "공시"];
         h += '<button type="button" class="c-news" data-corp="' + esc(w.stock_code) + '"><span class="tag ' + lv[0] + '">' + lv[1] + '</span><span class="t">' + esc(list[0].title) + '</span><span class="num" style="color:var(--ink-3)">' + list.length + "건</span></button>";
-      } else if (w.type === "etf" || w.type === "us") {
+      } else if (w.type === "etf" || w.type === "us" || newsOf(w.stock_code).length) {
         var nl = newsOf(w.stock_code);
         if (nl.length) {
           var nv = { danger: ["warn", "주의"], good: ["good", "호재"] }[nl[0].level] || ["news", "뉴스"];
