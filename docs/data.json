@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-23T15:42:56+09:00",
+ "saved_at": "2026-11-23T16:05:56+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -47,6 +47,18 @@
    "level": "danger",
    "held": true,
    "first_seen": "2026-11-23T07:43:49+09:00"
+  },
+  {
+   "id": "20261123000277",
+   "corp": "대한항공",
+   "stock_code": "003490",
+   "title": "임원ㆍ주요주주특정증권등소유상황보고서",
+   "date": "2026-11-23",
+   "filer": "이석우",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261123000277",
+   "level": "info",
+   "held": true,
+   "first_seen": "2026-11-23T16:05:56+09:00"
   },
   {
    "id": "20261123000211",
