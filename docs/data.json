@@ -14,7 +14,7 @@
   },
   "github": {
    "state": "fail",
-   "message": "GitHub 업로드 실패 docs/alive.json HTTP 502: Server Error",
+   "message": "GitHub 업로드 실패 docs/alive.json HTTP 500: ",
    "since": "2026-11-26T00:45+09:00"
   },
   "market": {
