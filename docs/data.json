@@ -14,8 +14,8 @@
   },
   "github": {
    "state": "fail",
-   "message": "GitHub 업로드 실패 docs/data.json HTTP 500: ",
-   "since": "2026-11-26T01:04+09:00"
+   "message": "GitHub 업로드 실패 docs/data.json HTTP 502: Server Error",
+   "since": "2026-11-26T01:09+09:00"
   },
   "market": {
    "state": "ok",
