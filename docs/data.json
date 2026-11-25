@@ -13,9 +13,9 @@
    "since": ""
   },
   "github": {
-   "state": "fail",
-   "message": "GitHub 업로드 실패 docs/data.json HTTP 502: Server Error",
-   "since": "2026-11-26T01:09+09:00"
+   "state": "ok",
+   "message": "정상",
+   "since": ""
   },
   "market": {
    "state": "ok",
