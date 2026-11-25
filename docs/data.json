@@ -14,7 +14,7 @@
   },
   "github": {
    "state": "fail",
-   "message": "GitHub 업로드 실패 docs/alive.json HTTP 504: We couldn't respond to your request in time. Sorry about that. Please try resubmitting your request and contact us if the problem persists.",
+   "message": "GitHub 업로드 실패 docs/alive.json HTTP 502: Server Error",
    "since": "2026-11-26T00:45+09:00"
   },
   "market": {
