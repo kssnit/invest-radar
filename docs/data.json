@@ -1,6 +1,6 @@
 {
  "title": "내 투자 레이더",
- "saved_at": "2026-11-27T15:59:45+09:00",
+ "saved_at": "2026-11-27T16:29:45+09:00",
  "status": {
   "dart": {
    "state": "ok",
@@ -35,6 +35,18 @@
    "level": "good",
    "held": true,
    "first_seen": "2026-11-27T15:26:45+09:00"
+  },
+  {
+   "id": "20261127001743",
+   "corp": "현대차",
+   "stock_code": "005380",
+   "title": "특수관계인으로부터기타유가증권매수",
+   "date": "2026-11-27",
+   "filer": "현대자동차",
+   "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261127001743",
+   "level": "info",
+   "held": true,
+   "first_seen": "2026-11-27T16:29:45+09:00"
   },
   {
    "id": "20261127001584",
